@@ -1,0 +1,123 @@
+{
+  "projectType": "framework",
+  "projectName": "FrankerFaceZ",
+  "projectDescription": "A Twitch enhancement suite and add-on framework that provides custom emotes, badges, chat filtering, and a powerful plugin system for extending Twitch's functionality.",
+  "theme": "almond",
+  "primaryColor": "#fcad06",
+  "lightColor": "#eee6d2",
+  "darkColor": "#4c4c4c",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/module-system",
+              "concepts/settings",
+              "concepts/events",
+              "concepts/i18n"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Add-on Development",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "addons/overview",
+              "addons/quickstart",
+              "addons/structure"
+            ]
+          },
+          {
+            "group": "Core APIs",
+            "pages": [
+              "addons/module",
+              "addons/addon-class",
+              "addons/settings",
+              "addons/events"
+            ]
+          },
+          {
+            "group": "Chat & Emotes",
+            "pages": [
+              "addons/chat-overview",
+              "addons/emotes",
+              "addons/badges",
+              "addons/tokenizers"
+            ]
+          },
+          {
+            "group": "UI & Utilities",
+            "pages": [
+              "addons/utilities",
+              "addons/dom",
+              "addons/filtering"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Contributing",
+        "groups": [
+          {
+            "group": "Development Setup",
+            "pages": [
+              "contributing/setup",
+              "contributing/building",
+              "contributing/architecture"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "contributing/faq",
+              "contributing/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Custom emotes from FrankerFaceZ emote library",
+    "Custom chat badges for supporters and channel owners",
+    "Advanced chat filtering and keyword highlighting",
+    "Modular add-on system for third-party extensions",
+    "Chat message tokenizer pipeline for custom rendering",
+    "Settings management with profile-based contexts",
+    "Real-time socket communication with FFZ servers",
+    "I18n/localization support with ICU message format",
+    "Experiment system for staged feature rollouts",
+    "Browser extension and userscript deployment modes"
+  ],
+  "publicApiSurface": [
+    "Module (utilities/module) — base class for all FFZ modules and add-ons",
+    "Addon (utilities/addon) — subclass of Module for add-on root modules",
+    "Addon.register() — registers an add-on with the FFZ module system",
+    "Module.inject() — declares and resolves module dependencies",
+    "Module.enable() / Module.disable() — lifecycle methods",
+    "Module.on() / Module.off() / Module.emit() — event system",
+    "EventEmitter (utilities/events) — typed event emitter with Detach/StopPropagation",
+    "SettingsManager (settings/index) — profile-based settings with type handlers",
+    "AddonManager (addons.ts) — manages loading, enabling, and disabling add-ons",
+    "FrankerFaceZ.utilities — static namespace exposing addon, color, dom, events, filtering, i18n, logging, module, object, time, tooltip utilities",
+    "FrankerFaceZ.get() — returns the singleton FrankerFaceZ instance",
+    "Chat module (modules/chat) — emotes, badges, tokenizers, rooms, users, actions",
+    "Emotes module (modules/chat/emotes) — emote sets, modifier flags, rendering",
+    "Badges module (modules/chat/badges) — Twitch and custom badge management",
+    "createTester() (utilities/filtering) — builds a context-aware filter test function"
+  ]
+}
