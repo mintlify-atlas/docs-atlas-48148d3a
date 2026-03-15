@@ -1,0 +1,284 @@
+---
+title: "Module API"
+description: "Complete reference for the Module class — the building block of every FrankerFaceZ add-on and core system."
+---
+
+`Module` (from `utilities/module`) is the base class for every component in FrankerFaceZ, including add-ons. It combines a hierarchical event emitter with a dependency injection system and a two-stage lifecycle (load + enable).
+
+```typescript
+import Module from 'utilities/module';
+```
+
+## Type parameters
+
+```typescript
+class Module<
+  TNamespace extends string = '',
+  TEventMap extends EventMap = {},
+  TExtraEvents extends EventMap = KnownEvents,
+  TActualEvents extends EventMap = TExtraEvents
+    & NamespacedEvents<TNamespace, TEventMap>
+    & NamespacedEvents<TNamespace, ModuleEvents>
+>
+```
+
+| Parameter | Purpose |
+|-----------|--------|
+| `TNamespace` | The absolute module path (e.g. `'addon.my-addon'`). Enables relative event keys. |
+| `TEventMap` | Events this module emits (relative keys only). |
+| `TExtraEvents` | Additional events to include (defaults to `KnownEvents` — all well-known FFZ events). |
+
+## Constructor
+
+```typescript
+constructor(name?: string, parent?: GenericModule)
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `name` | Local name of the module. Defaults to the class name converted to snake_case. |
+| `parent` | The parent module. All modules except the FFZ root have a parent. |
+
+When `parent` is provided the module shares the parent's event listener pool and module registry. The full path becomes `parent.path + '.' + name`.
+
+## Lifecycle enums
+
+### `State`
+
+Represents the enabled/disabled state of a module.
+
+```typescript
+enum State {
+  Disabled,   // 0 — module is not running
+  Enabling,   // 1 — onEnable() is in progress
+  Enabled,    // 2 — module is fully active
+  Disabling,  // 3 — onDisable() is in progress
+}
+```
+
+### `LoadState`
+
+Represents whether a module's resources have been loaded.
+
+```typescript
+enum LoadState {
+  Unloaded,   // 0 — not yet loaded
+  Loading,    // 1 — onLoad() is in progress
+  Loaded,     // 2 — fully loaded
+  Unloading,  // 3 — onUnload() is in progress
+}
+```
+
+A module with no `onLoad()` method and no `load_requires` starts in `LoadState.Loaded`. A module with no `onEnable()` method starts in `State.Enabled`.
+
+## Lifecycle hooks
+
+All lifecycle hooks are optional. Define them as instance methods to opt into that stage.
+
+### `onLoad(): void | Promise<void>`
+
+Called once when the module is first loaded. All `load_requires` modules are already enabled before this runs. Promises are awaited before the state transitions to `LoadState.Loaded`.
+
+```typescript
+protected async onLoad() {
+  this.data = await fetchSomeData();
+}
+```
+
+### `onUnload(): void | Promise<void>`
+
+Called when the module is unloaded. You must define this if you define `onLoad()`, otherwise FFZ will refuse to unload the module. All dependents are disabled before this runs.
+
+```typescript
+protected onUnload() {
+  this.data = null;
+}
+```
+
+### `onEnable(): void | Promise<void>`
+
+Called when the module is being enabled. All `requires` dependencies are already enabled and injected when this runs. Promises are awaited before the state transitions to `State.Enabled`.
+
+```typescript
+protected async onEnable() {
+  this.log.info('Module enabled.');
+  this.on('chat:receive-message', this.onMessage, this);
+}
+```
+
+### `onDisable(): void | Promise<void>`
+
+Called when the module is being disabled. You must define this if you define `onEnable()`. All dependent modules are disabled before this runs.
+
+```typescript
+protected onDisable() {
+  this.off('chat:receive-message', this.onMessage, this);
+}
+```
+
+## State properties
+
+```typescript
+get state(): State           // current State value
+get load_state(): LoadState  // current LoadState value
+get loaded(): boolean        // true when LoadState.Loaded
+get loading(): boolean       // true when LoadState.Loading
+get enabled(): boolean       // true when State.Enabled
+get enabling(): boolean      // true when State.Enabling
+```
+
+## `should_enable`
+
+```typescript
+should_enable?: boolean;
+```
+
+Set this to `true` on direct children of `core` or `site` to have FFZ automatically call `enable()` during initialisation. Do not use this in add-ons — `AddonManager` handles enabling add-on modules.
+
+## Dependency injection
+
+### `inject(name, module?, require?)`
+
+Registers a dependency and assigns it to `this[name]`.
+
+```typescript
+inject(
+  name: string | Module | null,
+  module?: GenericModule | typeof Module | null,
+  require?: boolean
+)
+```
+
+**Calling with a string path** looks up an existing module by its absolute or relative path:
+
+```typescript
+// Inject the core settings module onto this.settings:
+this.inject('settings');
+
+// Inject a deeply-nested module:
+this.inject('site.web_munch');
+```
+
+**Calling with a class** instantiates and registers a new child module:
+
+```typescript
+import ChatHandler from './chat';
+
+// Registers and assigns this.chat_handler:
+this.inject('chat_handler', ChatHandler);
+```
+
+Set `require` to `false` to inject a soft dependency (the module is not required to be enabled before this one).
+
+### `injectAs(variable, name, module?, require?)`
+
+Same as `inject()` but assigns the result to `this[variable]` instead of deriving the property name from the module name.
+
+```typescript
+this.injectAs('myChat', 'chat');
+// this.myChat === the chat module
+```
+
+### `resolve<TPath>(name)`
+
+Looks up a module by path without adding a dependency:
+
+```typescript
+const chat = this.resolve('chat');
+```
+
+Returns `null` if the module does not exist. When called from within an add-on module, if the target module implements `getAddonProxy()`, the proxy is returned instead of the raw module.
+
+## Module registration
+
+### `register(name, ModuleClass, injectReference?)`
+
+Instantiates and registers a child module under this module:
+
+```typescript
+const child = this.register('my_feature', MyFeature);
+// Registered at: this.path + '.my_feature'
+```
+
+Pass `true` as the third argument to also assign the result to `this[name]`.
+
+### `loadFromContext(ctx, log?)`
+
+Loads child modules from a webpack `require.context`. Each file should export its `Module` subclass as `default` or as a named export called `module`.
+
+```typescript
+async onLoad() {
+  await this.loadFromContext(
+    require.context('./modules', true, /\/index\.[jt]sx?$/)
+  );
+}
+```
+
+Returns a `Promise<Record<string, GenericModule>>` mapping file paths to module instances.
+
+## `buildAddonProxy`
+
+A static helper that wraps any object in a `Proxy` giving add-ons a sandboxed view of a core module. Core modules call this in their `getAddonProxy()` implementation to log deprecation warnings and override specific methods.
+
+```typescript
+static buildAddonProxy<TObj extends object>(
+  accessor: Module | null,
+  thing: TObj,
+  name: string,
+  overrides: Record<string, any>,
+  access_warnings?: Record<string, string | boolean>,
+  no_proxy?: boolean
+): TObj
+```
+
+## Module events
+
+Every module automatically emits these lifecycle events. Listeners on a parent module can subscribe using the full path prefix.
+
+```typescript
+type ModuleEvents = {
+  ':registered': [module: GenericModule];
+  ':loaded':     [module: GenericModule];
+  ':unloaded':   [module: GenericModule];
+  ':enabled':    [module: GenericModule];
+  ':disabled':   [module: GenericModule];
+};
+```
+
+Example — react when a specific child module becomes enabled:
+
+```typescript
+this.on('addon.my-addon.chat:enabled', module => {
+  this.log.info('Chat sub-module is ready.');
+});
+```
+
+## Accessing the FFZ instance
+
+```typescript
+const ffz = window.FrankerFaceZ.get();
+```
+
+`FrankerFaceZ.get()` returns the singleton FFZ instance. From there you can `resolve()` any module. Inside a module you typically use `this.resolve()` or injected properties instead.
+
+## Addon metadata properties
+
+These read-only properties are available on any module that belongs to an add-on:
+
+```typescript
+get addon_id(): string | undefined        // the add-on's ID
+get addon_root(): GenericModule | undefined // the Addon root module
+get addon_manifest(): AddonInfo | undefined // the AddonInfo manifest
+```
+
+## Logging
+
+Every module has a `log` property that provides a scoped logger:
+
+```typescript
+this.log.info('Module initialised.');
+this.log.warn('Something unexpected happened.');
+this.log.error('Something broke.', err);
+```
+
+The logger is lazily created from the parent's logger using the module's local name as the category.

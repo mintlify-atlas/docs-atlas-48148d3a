@@ -1,0 +1,114 @@
+---
+title: "FAQ"
+description: "Frequently asked questions about FrankerFaceZ for users and developers."
+keywords: ["faq", "help", "emotes", "badges", "supporter", "debug", "add-on"]
+---
+
+## User FAQ
+
+<AccordionGroup>
+  <Accordion title="What happened to a feature that existed in v3?">
+    There are still features missing from FrankerFaceZ v4.0 that were present in v3.0. A few features are impractical to restore on the current version of Twitch's React-based website.
+
+    Many features are planned to return as developers find time to implement them. There is no fixed schedule. Features are released as soon as they are ready.
+  </Accordion>
+
+  <Accordion title="I donated, but my FFZ Supporter badge isn't showing up.">
+    Due to caching on the FFZ API, it can take **up to 30 minutes** for badge changes to take effect across all users. After waiting, perform a hard refresh of the page (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+
+    This same delay applies to newly added channel emotes.
+  </Accordion>
+
+  <Accordion title="I added an emote to my channel but I don't see it yet.">
+    API responses for emotes are cached for performance. Changes to your emote set can take **up to 30 minutes** to propagate. After the delay, refresh the page. A hard refresh clears any browser-cached responses.
+  </Accordion>
+
+  <Accordion title="I don't want the FFZ Supporter badge displayed.">
+    You can toggle your FFZ badge visibility on your profile settings page:
+
+    [https://www.frankerfacez.com/settings/profile](https://www.frankerfacez.com/settings/profile)
+  </Accordion>
+
+  <Accordion title="I can see my emotes, but someone else says they can't.">
+    FrankerFaceZ emotes are only visible to users who have FFZ installed (or another third-party client that supports FFZ emotes). Users without FFZ will see the emote code as plain text.
+
+    Users who do have FFZ installed might not see newly added emotes immediately depending on their local browser cache and when they last refreshed.
+  </Accordion>
+
+  <Accordion title="There's a stolen or offensive emote. How do I report it?">
+    Use the **Report Emote** tool on the FFZ website:
+
+    1. **Shift-click** the offending emote in chat to open its emote page.
+    2. In the right sidebar, click **Report Emote**.
+    3. Sign in if prompted, then submit the report.
+
+    Reports are reviewed by the FFZ team.
+  </Accordion>
+</AccordionGroup>
+
+## Developer FAQ
+
+<AccordionGroup>
+  <Accordion title="How do I get the FFZ instance from the browser console?">
+    Two equivalent methods are available:
+
+    ```javascript
+    // Via the global shorthand
+    const ffz = window.ffz;
+
+    // Via the static accessor
+    const ffz = FrankerFaceZ.get();
+    ```
+
+    Both return the single running `FrankerFaceZ` instance. From there you can access any registered module:
+
+    ```javascript
+    // Access the chat module
+    const chat = ffz.resolve('chat');
+
+    // Access settings
+    const settings = ffz.resolve('settings');
+    ```
+  </Accordion>
+
+  <Accordion title="How do I enable debug mode?">
+    Set the `ffzDebugMode` flag in localStorage on the Twitch domain, then reload the page:
+
+    ```javascript
+    localStorage.ffzDebugMode = true;
+    ```
+
+    With debug mode enabled, FFZ loads assets from `https://localhost:8000` (the local dev server) instead of the production CDN. This requires the dev server to be running (`pnpm dev`).
+  </Accordion>
+
+  <Accordion title="Where can I find add-on examples?">
+    The [FrankerFaceZ Add-On System](https://github.com/FrankerFaceZ/Add-Ons) repository contains community add-ons that demonstrate the add-on API. These range from simple feature toggles to complex integrations with external services.
+
+    The `AddonManager` in `src/addons/` handles loading and lifecycle for add-ons at runtime.
+  </Accordion>
+
+  <Accordion title="How do I write a new module or add-on?">
+    Modules extend the base `Module` class from `utilities/module`. A minimal module looks like:
+
+    ```javascript
+    import Module from 'utilities/module';
+
+    export default class MyModule extends Module {
+        constructor(...args) {
+            super(...args);
+            this.should_enable = true;
+        }
+
+        onEnable() {
+            this.log.info('My module enabled.');
+        }
+    }
+    ```
+
+    Modules placed in `src/modules/` are auto-discovered at startup via `discoverModules()`. Add-ons loaded through `AddonManager` follow the same pattern but are loaded from external URLs.
+  </Accordion>
+
+  <Accordion title="How do I access Twitch's internal modules?">
+    FFZ intercepts Twitch's webpack module registry through `src/bridge.js` and `src/esbridge.js`. From inside a module you can use the GraphQL utilities in `utilities/graphql` or the mutation helpers in `utilities/mutations/` to hook into Twitch's internal component tree without bundling Twitch's own code.
+  </Accordion>
+</AccordionGroup>

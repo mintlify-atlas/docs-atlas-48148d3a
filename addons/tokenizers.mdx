@@ -1,0 +1,213 @@
+---
+title: "Chat Tokenizers"
+description: "How the FFZ tokenizer pipeline works, built-in tokenizers, and how to add custom tokenizers from an add-on."
+---
+
+The tokenizer pipeline is the core of FFZ's chat rendering. When Twitch sends a chat message, FFZ runs it through a series of **tokenizers** — objects that parse text and produce typed token objects. These tokens are then rendered into DOM elements that replace or augment Twitch's default chat display.
+
+## How the pipeline works
+
+```
+Raw chat message string
+         │
+         ▼
+  [Tokenizer #1] process(tokens, msg)   ← priority 1000 (highest)
+         │
+         ▼
+  [Tokenizer #2] process(tokens, msg)   ← priority 50
+         │
+         ▼
+  [Tokenizer #3] process(tokens, msg)   ← lower priority
+         │
+         ▼
+  Array of typed token objects
+         │
+         ▼
+  Each token's render() function
+         │
+         ▼
+  DOM elements injected into chat
+```
+
+1. The raw message starts as a single text token.
+2. Each tokenizer in priority order calls `process()`, which may split text tokens into more specific types (emote, link, mention).
+3. After all tokenizers run, each token's `render()` method produces the final DOM output.
+
+## Tokenizer object structure
+
+A tokenizer is a plain object with the following shape:
+
+```javascript
+const MyTokenizer = {
+  // Unique type identifier
+  type: 'my-type',
+
+  // Higher priority = runs earlier in the pipeline
+  priority: 10,
+
+  // Process the token array and return modified tokens
+  // Return undefined/null to skip this tokenizer for the message
+  process(tokens, msg) {
+    // tokens is an array of token objects
+    // msg is the original message object
+    // Return the modified tokens array
+    return tokens;
+  },
+
+  // Render a token of this type to a DOM element
+  // Called with `this` bound to the Chat module
+  render(token, createElement) {
+    return <span class="my-element">{token.text}</span>;
+  }
+};
+```
+
+## Built-in tokenizers
+
+FFZ ships several built-in tokenizers in `src/modules/chat/tokenizers.jsx`:
+
+### FilterTester (priority: 1000)
+
+Debug tokenizer that appends filter match info to messages when `chat.filtering.debug` is enabled:
+
+```javascript
+export const FilterTester = {
+  type: 'filter_test',
+  priority: 1000,
+
+  render(token, createElement) {
+    if ( ! token.msg.filters?.length )
+      return null;
+    return (<div class="ffz-pill tw-mg-l-1">
+      { token.msg.filters.join(', ') }
+    </div>);
+  },
+
+  process(tokens, msg) {
+    if ( ! tokens || ! tokens.length || ! this.context.get('chat.filtering.debug') )
+      return;
+    msg.filters = [];
+    tokens.push({ type: 'filter_test', msg });
+    return tokens;
+  }
+};
+```
+
+### Links (priority: 50)
+
+Detects URLs using `NEW_LINK_REGEX` and wraps them in anchor elements with tooltip support:
+
+```javascript
+const NEW_LINK_REGEX = /(?:(https?:\/\/)?((?:[\w#%\-+=:~]+\.)+[a-z]{2,10}(?:\/[\w./#%&@()\-+=:?~]*[^\s\.!,?])?))/g;
+```
+
+### Mentions
+
+Detects `@username` patterns using `MENTION_REGEX` and styles them as clickable mention links.
+
+### Emotes
+
+Matches text against the active emote sets and replaces matching words with emote image tokens.
+
+## Token object format
+
+A token is a plain object with a `type` string and additional properties depending on the type:
+
+```javascript
+// Text token (default)
+{ type: 'text', text: 'Hello world' }
+
+// Emote token
+{
+  type: 'emote',
+  id: 12345,
+  name: 'PogChamp',
+  src: 'https://...',
+  srcSet: 'https://... 1x, https://... 2x',
+  modifier: false,
+  modifier_flags: 0,
+  ffz_emote: { /* emote data object */ }
+}
+
+// Link token
+{
+  type: 'link',
+  url: 'https://example.com',
+  text: 'example.com',
+  is_mail: false
+}
+
+// Mention token
+{
+  type: 'mention',
+  text: '@username',
+  user: 'username'
+}
+```
+
+## Registering a custom tokenizer
+
+Use the Chat module's `addTokenizer()` method from your add-on:
+
+```javascript
+import { Addon } from 'utilities/addon';
+
+const MyTokenizer = {
+  type: 'my-highlight',
+  priority: 20,
+
+  process(tokens, msg) {
+    const out = [];
+    for (const token of tokens) {
+      if (token.type !== 'text') {
+        out.push(token);
+        continue;
+      }
+      // Split on the word "hello" and wrap it
+      const parts = token.text.split(/(hello)/i);
+      for (const part of parts) {
+        if (part.toLowerCase() === 'hello') {
+          out.push({ type: 'my-highlight', text: part });
+        } else if (part) {
+          out.push({ type: 'text', text: part });
+        }
+      }
+    }
+    return out;
+  },
+
+  render(token, createElement) {
+    return <strong class="ffz-my-highlight">{token.text}</strong>;
+  }
+};
+
+export default class MyAddon extends Addon {
+  constructor(name, parent) {
+    super(name, parent);
+    this.inject('chat');
+  }
+
+  async onEnable() {
+    const chat = this.resolve('chat');
+    chat.addTokenizer(MyTokenizer);
+  }
+
+  async onDisable() {
+    const chat = this.resolve('chat');
+    chat.removeTokenizer(MyTokenizer);
+  }
+}
+```
+
+## Rich content providers
+
+Rich providers extend the link tooltip system to render structured previews for specific URLs (videos, images, channel cards, etc.).
+
+A rich provider is registered with `chat.addRichProvider()` and specifies:
+- A URL pattern to match
+- A `process()` method that fetches and formats preview data
+- Rendering instructions using the rich token format from `utilities/rich_tokens`
+
+<Tip>
+  When writing tokenizers, always return the original token unchanged if you don't recognize its type. Returning `undefined` or `null` from `process()` tells FFZ this tokenizer doesn't apply to the current message.
+</Tip>

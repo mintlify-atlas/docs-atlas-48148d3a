@@ -1,0 +1,83 @@
+---
+title: "Introduction"
+description: "What FrankerFaceZ is, how it works, and where to go next."
+---
+
+FrankerFaceZ (FFZ) is a browser extension and userscript that enhances Twitch with features the platform doesn't provide natively. It has been actively maintained since Twitch's React rewrite and is used by hundreds of thousands of viewers and streamers worldwide.
+
+## History
+
+FrankerFaceZ began as a custom emote platform, letting streamers and viewers use emotes beyond Twitch's built-in set. Over time it grew into a full enhancement suite — adding chat filtering, badge customization, layout controls, and a plugin framework that lets third-party developers extend its capabilities further through the add-on system.
+
+Version 4 (the current major version, as of v4.81.0) was a ground-up rewrite targeting Twitch's React-based "Twilight" frontend. The module system, settings engine, and add-on API introduced in v4 remain the foundation of the project today.
+
+## Architecture overview
+
+FFZ runs entirely in the browser, loaded either as a browser extension or as a userscript via a manager such as Tampermonkey. In both cases the same core JavaScript bundle is executed inside the Twitch page.
+
+```
+Twitch page load
+      │
+      ▼
+  FFZ entry point  (entry.js  ← userscript)
+  FFZ entry point  (entry_ext.js  ← browser extension)
+      │
+      │  Selects flavor: avalon | player | clips | bridge
+      ▼
+  FrankerFaceZ core  (main.ts)
+      │
+      ├── SettingsManager     — profiles, storage, cross-tab sync
+      ├── AddonManager        — load, enable, disable add-ons
+      ├── TranslationManager  — i18n / ICU message formatting
+      ├── ExperimentManager   — A/B flag evaluation
+      ├── SocketClient        — real-time updates from FFZ servers
+      ├── PubSubClient        — Twitch PubSub bridge
+      ├── LoadTracker         — page-load phase coordination
+      └── Site module         — Twitch-specific DOM integration
+              │
+              ├── Chat  →  Emotes, Badges, Tokenizers, Actions
+              └── Other site modules
+```
+
+**Entry points.** `entry.js` is the userscript entry. It reads `localStorage.ffzDebugMode` to decide whether to load the bundle from `localhost:8000` (local dev server) or from `cdn2.frankerfacez.com`. `entry_ext.js` is the browser extension content script; it loads the bundle from the extension package and sets up a messaging bridge between the page context and the extension service worker.
+
+**Flavor selection.** Both entry points inspect `location.hostname` and `location.pathname` to pick one of four bundle flavors — `avalon` (main Twitch UI), `player` (popout player), `clips`, or `bridge` — and inject the matching `<script>` tag into the page.
+
+**Module tree.** The `FrankerFaceZ` class (which extends `Module`) is the root of a dependency-injection tree. Every subsystem is registered with `this.inject()` and can declare dependencies on other modules. Modules are discovered at startup via webpack's `require.context` over the `src/modules/` directory.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Custom emotes" icon="face-smile">
+    Channel and global emotes from the FFZ emote library, with support for modifiers, animations, and custom sizing.
+  </Card>
+  <Card title="Custom badges" icon="certificate">
+    FFZ supporter badges, channel-specific badges, and full badge rendering customization.
+  </Card>
+  <Card title="Chat filtering" icon="filter">
+    Keyword highlighting, user blocking, and regex-based filtering controlled by settings profiles.
+  </Card>
+  <Card title="Add-on system" icon="puzzle-piece">
+    A modular plugin framework for building and distributing new features as independent add-ons.
+  </Card>
+  <Card title="Settings profiles" icon="sliders">
+    Context-aware settings that change based on the current channel, category, or other conditions.
+  </Card>
+  <Card title="Real-time updates" icon="bolt">
+    A persistent socket connection to FFZ servers for instant emote, badge, and configuration updates.
+  </Card>
+</CardGroup>
+
+## Where to go next
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get FFZ running on Twitch using the userscript and local dev server.
+  </Card>
+  <Card title="Core concepts" icon="book-open" href="/concepts/module-system">
+    Learn the module system, settings engine, events, and i18n layer.
+  </Card>
+  <Card title="Build an add-on" icon="puzzle-piece" href="/addons/overview">
+    Extend FFZ with your own features using the add-on API.
+  </Card>
+</CardGroup>

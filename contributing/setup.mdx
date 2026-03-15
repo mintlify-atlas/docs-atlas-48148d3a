@@ -1,0 +1,100 @@
+---
+title: "Development Setup"
+description: "How to set up a local FrankerFaceZ development environment from scratch."
+keywords: ["development", "setup", "pnpm", "node", "ffz", "debug"]
+---
+
+## Prerequisites
+
+Before you begin, make sure you have the following installed:
+
+- **Node.js** — any current LTS release
+- **pnpm** — FrankerFaceZ uses pnpm as its package manager. Install it from [pnpm.io](https://pnpm.io/)
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/FrankerFaceZ/FrankerFaceZ.git
+    cd FrankerFaceZ
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    pnpm install
+    ```
+
+    This installs all build tooling and runtime dependencies declared in `package.json`.
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    pnpm dev
+    ```
+
+    Webpack starts in watch mode and serves files at `https://localhost:8000/script/`.
+  </Step>
+</Steps>
+
+## Local development server
+
+The built-in development server listens on **port 8000** and serves locally built files, falling back to the production CDN (`https://cdn2.frankerfacez.com/static/`) for any file that has not been built locally.
+
+<Warning>
+  The development server uses `webpack-dev-server` with a self-signed TLS certificate. You must instruct your browser to accept the certificate for `localhost` before the server will load correctly. Visit `https://localhost:8000` directly in your browser and accept the security warning.
+</Warning>
+
+## Loading FFZ from the local server
+
+The userscript version of FrankerFaceZ is designed to load from a local development server. Use the userscript for development rather than the browser extension.
+
+Once the dev server is running, enable debug mode on Twitch by running the following in your browser console:
+
+```javascript
+localStorage.ffzDebugMode = true;
+```
+
+After setting this flag, reload the Twitch tab. FFZ will load assets from `https://localhost:8000` instead of the production CDN.
+
+## Userscript vs extension mode
+
+| Mode | Use case |
+|------|----------|
+| **Userscript** (`entry.js`) | Recommended for local development. Loads from the dev server when `ffzDebugMode` is set. |
+| **Extension** (`entry_ext.js`) | Used for building the browser extension package. Set `FFZ_EXTENSION=true` to activate. |
+
+For day-to-day development work, always use the userscript mode.
+
+## Editor setup
+
+### VS Code
+
+Install the **ESLint** extension for VS Code, then add the following to your workspace settings (`.vscode/settings.json`):
+
+```json
+{
+	"eslint.validate": [
+		"javascript",
+		"javascriptreact",
+		"vue"
+	]
+}
+```
+
+<Tip>
+  The ESLint config (`eslintrc.js`) covers JavaScript, JSX, and Vue single-file components. Make sure lint errors are visible in your editor before submitting a pull request.
+</Tip>
+
+### Code style requirements
+
+<Warning>
+  All source files must use **tab indentation** and **LF line endings** (`\n`). These are enforced by ESLint rules (`indent: tab`, `linebreak-style: unix`). Committing files with spaces or CRLF line endings will cause lint failures.
+</Warning>
+
+These rules are defined in `.eslintrc.js`:
+
+- Indentation: tabs (including Vue templates and JSX)
+- Line endings: Unix (`\n`)
+- Quotes: single quotes, with template literals allowed

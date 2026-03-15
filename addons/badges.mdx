@@ -1,0 +1,119 @@
+---
+title: "Badges API"
+description: "How FrankerFaceZ manages chat badges, built-in badge styling, and how add-ons can add custom badges."
+---
+
+The `Badges` module (`src/modules/chat/badges.jsx`) is responsible for rendering Twitch and FFZ badges in chat messages. It handles badge color configuration, SVG support, and allows add-ons to inject custom badges.
+
+## Built-in badge styling
+
+FFZ has its own color configuration for standard Twitch badges, organized by badge style version:
+
+```javascript
+// From src/modules/chat/badges.jsx — badge color configuration
+const CSS_BADGES = {
+  1: {
+    staff:          { 1: { color: '#200f33', svg: true, trans: { color: '#6441a5' } } },
+    admin:          { 1: { color: '#faaf19', svg: true } },
+    global_mod:     { 1: { color: '#0c6f20', svg: true } },
+    broadcaster:    { 1: { color: '#e71818', svg: true } },
+    moderator:      { 1: { color: '#34ae0a', svg: true } },
+    partner:        { 1: { color: 'transparent', trans: { image: true, color: '#6441a5' } } },
+    vip:            { 1: { color: '#b33ff0', trans: { color: 'transparent', invert: false } } },
+    turbo:          { 1: { color: '#6441a5', svg: true } },
+    premium:        { 1: { color: '#009cdc' } },
+    subscriber:     { 0: { color: '#6441a5' }, 1: { color: '#6441a5' } },
+  },
+  2: {
+    staff:          { 1: { color: '#000' } },
+    admin:          { 1: { color: '#DB7600' } },
+    broadcaster:    { 1: { color: '#E91916' } },
+    moderator:      { 1: { color: '#00AD03' } },
+    vip:            { 1: { color: '#E005B9' } },
+    turbo:          { 1: { color: '#59399A' } },
+    premium:        { 1: { color: '#00A0D6' } },
+    subscriber:     { 0: { color: '#8205B4' }, 1: { color: '#8205B4' } },
+  }
+};
+```
+
+The `trans` property specifies transparent-background variants for high-contrast mode, where the badge is displayed differently.
+
+## ColorAdjuster
+
+Badge colors are processed through `ColorAdjuster` from `utilities/color`, which adjusts colors for accessibility based on the user's background color preference:
+
+```javascript
+import { ColorAdjuster } from 'utilities/color';
+
+// ColorAdjuster calculates readable badge colors against the user's background
+const adjuster = new ColorAdjuster();
+const adjustedColor = adjuster.process(badgeColor);
+```
+
+## Accessing the Badges module
+
+From an add-on, resolve the badges module:
+
+```javascript
+export default class MyAddon extends Addon {
+  constructor(name, parent) {
+    super(name, parent);
+    this.inject('chat');
+  }
+
+  async onEnable() {
+    const badges = this.resolve('chat.badges');
+  }
+}
+```
+
+## Adding custom badges
+
+Custom badges can be injected through the Badges module. A badge is identified by a type string and a version number:
+
+```javascript
+async onEnable() {
+  const badges = this.resolve('chat.badges');
+
+  // Register a custom badge
+  badges.addBadge('my-addon', {
+    id: 'my-badge',
+    title: 'My Custom Badge',
+    slot: 15,        // Display slot (0 = after username, higher = further right)
+    image: 'https://example.com/badge.png',
+    urls: {
+      1: 'https://example.com/badge/1x.png',
+      2: 'https://example.com/badge/2x.png',
+      4: 'https://example.com/badge/4x.png'
+    }
+  });
+}
+
+async onDisable() {
+  const badges = this.resolve('chat.badges');
+  badges.removeBadge('my-addon', 'my-badge');
+}
+```
+
+## Badge slots
+
+Badges have a slot number that controls their display order. FFZ supporter badges use specific slot values to appear in consistent positions:
+
+| Slot range | Position |
+|-----------|----------|
+| 0–5 | Before all Twitch badges |
+| 6–14 | Between Twitch badges |
+| 15–99 | After all Twitch badges |
+
+## Badge display modes
+
+FFZ supports multiple badge rendering modes, including:
+
+- **Standard image badge**: PNG/WebP image at 1x/2x/4x resolutions
+- **SVG badge**: Vector badge that scales to any size
+- **CSS color badge**: Simple color block with no image
+
+<Note>
+  When adding badges that correspond to specific users (e.g., donor badges), you typically inject them via the user's Room or User object rather than as global badges.
+</Note>

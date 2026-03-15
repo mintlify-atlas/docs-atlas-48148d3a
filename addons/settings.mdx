@@ -1,0 +1,229 @@
+---
+title: "Settings API"
+description: "Declare, read, write, and react to settings in a FrankerFaceZ add-on."
+---
+
+Every `Addon` instance has `this.settings` injected automatically. This is an instance of `SettingsManager` (from `src/settings/index.ts`). Use it to declare settings, read and write values, and subscribe to changes.
+
+## Declaring settings
+
+Before you can use `this.settings.get()`, you need to register a setting definition with `this.settings.add()`.
+
+```typescript
+async onEnable() {
+  this.settings.add('my-addon.show-badges', {
+    default: true,
+    ui: {
+      path: 'Add-Ons > My Addon >> Appearance',
+      title: 'Show Badges',
+      description: 'Display extra badges in chat.',
+      component: 'setting-check-box',
+    }
+  });
+}
+```
+
+### Settings key naming convention
+
+Always prefix your settings keys with your add-on ID followed by a dot:
+
+```
+<addon-id>.<setting-name>
+```
+
+Examples: `my-addon.show-badges`, `my-addon.max-emotes`, `my-addon.theme`.
+
+This namespaces your settings away from core FFZ settings and from other add-ons.
+
+## TypeScript: augmenting `SettingsTypeMap`
+
+FFZ uses TypeScript module augmentation to provide type safety for settings keys. Declare your settings in an augmentation so that `get()` and `set()` are fully typed.
+
+```typescript
+// In your add-on's type declarations (e.g. src/types.d.ts or at the top of index.ts):
+declare module 'utilities/types' {
+  interface SettingsTypeMap {
+    'my-addon.show-badges': boolean;
+    'my-addon.max-emotes': number;
+    'my-addon.theme': 'light' | 'dark' | 'auto';
+  }
+}
+```
+
+With this augmentation in place:
+
+```typescript
+const show = this.settings.get('my-addon.show-badges'); // boolean
+const max  = this.settings.get('my-addon.max-emotes');  // number
+```
+
+## Reading a setting
+
+```typescript
+get<K extends AllSettingsKeys>(key: K): SettingType<K>
+```
+
+Returns the current value of the setting from the active settings profile. The return type is inferred from `SettingsTypeMap` when you have augmented it.
+
+```typescript
+const showBadges = this.settings.get('my-addon.show-badges');
+if (showBadges) {
+  // render badges
+}
+```
+
+## Writing a setting
+
+Write a value through the settings provider:
+
+```typescript
+this.settings.provider.set('my-addon.show-badges', false);
+```
+
+<Note>
+`SettingsManager` does not expose a top-level `set()` method. Values are written to the active `SettingsProvider` directly. The change propagates through the profile system and triggers `changed:` events.
+</Note>
+
+## Reacting to changes
+
+### `settings.on('changed:<key>', listener)`
+
+Subscribe to changes for a specific setting by listening on the `settings` module's event bus using the `:changed:<key>` event:
+
+```typescript
+this.on('settings:changed:my-addon.show-badges',
+  (newValue: boolean, oldValue: boolean) => {
+    this.log.info(`show-badges changed from ${oldValue} to ${newValue}`);
+    this.refreshBadges();
+  }
+);
+```
+
+### `settings.getChanges(key, fn, ctx?)`
+
+A convenience method that immediately calls `fn` with the current value **and** registers a change listener:
+
+```typescript
+this.settings.getChanges(
+  'my-addon.show-badges',
+  (value: boolean) => {
+    this.setBadgesEnabled(value);
+  },
+  this
+);
+```
+
+### `settings.onChange(key, fn, ctx?)`
+
+Like `getChanges()` but does **not** call `fn` immediately — only fires when the value actually changes:
+
+```typescript
+this.settings.onChange(
+  'my-addon.show-badges',
+  (value: boolean) => {
+    this.setBadgesEnabled(value);
+  },
+  this
+);
+```
+
+## Setting definitions
+
+The second argument to `settings.add()` is a `SettingDefinition`. The most important fields:
+
+```typescript
+this.settings.add('my-addon.max-emotes', {
+  // The value used when no profile overrides this setting:
+  default: 10,
+
+  // UI descriptor — only needed if the setting appears in the UI:
+  ui: {
+    // Path in the settings panel. Use ' > ' for groups and ' >> ' for subgroups.
+    path: 'Add-Ons > My Addon >> Limits',
+    title: 'Maximum emotes per line',
+    description: 'Limit how many custom emotes appear on a single chat line.',
+    // Component to render:
+    component: 'setting-text-box',
+    // Component-specific props:
+    process: 'to_int',
+    bounds: [0, 50],
+  }
+});
+```
+
+### Common UI components
+
+| Component | Use for |
+|-----------|--------|
+| `setting-check-box` | Boolean toggle |
+| `setting-text-box` | String or number input |
+| `setting-select-box` | Enum selection from a list |
+| `setting-color-box` | Color picker |
+
+## Settings with profiles and contexts
+
+FFZ's settings system supports multiple profiles (e.g. a default profile and channel-specific overrides). `this.settings.get()` always reads from the active merged context. You can update the context with additional data:
+
+```typescript
+// Update the context so context-aware filters work correctly:
+this.settings.updateContext({
+  channel: 'some_channel',
+  category: 'Just Chatting',
+});
+```
+
+To read a setting in a specific context without changing the global one, use `settings.context(env).get(key)` on a context instance.
+
+## Complete example
+
+```typescript
+import { Addon } from 'utilities/addon';
+
+declare module 'utilities/types' {
+  interface SettingsTypeMap {
+    'example-addon.enabled': boolean;
+    'example-addon.max-items': number;
+  }
+}
+
+export default class ExampleAddon extends Addon {
+  async onEnable() {
+    // 1. Declare settings:
+    this.settings.add('example-addon.enabled', {
+      default: true,
+      ui: {
+        path: 'Add-Ons > Example Addon >> General',
+        title: 'Enable feature',
+        component: 'setting-check-box',
+      }
+    });
+
+    this.settings.add('example-addon.max-items', {
+      default: 5,
+      ui: {
+        path: 'Add-Ons > Example Addon >> General',
+        title: 'Maximum items',
+        component: 'setting-text-box',
+        process: 'to_int',
+        bounds: [1, 20],
+      }
+    });
+
+    // 2. React to changes:
+    this.settings.getChanges('example-addon.enabled', enabled => {
+      this.setFeatureEnabled(enabled);
+    }, this);
+  }
+
+  onDisable() {
+    // Listeners registered with this.on() / this.settings.getChanges()
+    // and tracked by module context are cleaned up automatically.
+  }
+
+  private setFeatureEnabled(enabled: boolean) {
+    this.log.info('Feature enabled:', enabled);
+  }
+}
+
+ExampleAddon.register();
+```

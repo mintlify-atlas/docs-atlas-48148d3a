@@ -1,0 +1,85 @@
+---
+title: "Changelog"
+description: "Version history for the FrankerFaceZ client, from the v3 era through v4."
+keywords: ["changelog", "versions", "history", "release"]
+---
+
+## Current version
+
+The current release of the FrankerFaceZ client is **4.81.0**.
+
+For the full list of releases, see the [GitHub Releases page](https://github.com/FrankerFaceZ/FrankerFaceZ/releases).
+
+<Note>
+  This changelog covers the legacy v3 history preserved in `old_changes.html` and the major milestone of the v4.0 rewrite. Ongoing release notes are tracked in GitHub Releases.
+</Note>
+
+## v4.0 — React rewrite (2017)
+
+Version 4.0 of FrankerFaceZ was developed in response to Twitch's migration to a React-based website in late 2017. The v3 client was built on top of Twitch's previous Ember.js frontend, which was retired when the new site launched.
+
+The v4 rewrite introduced:
+
+- A new module system with dependency injection and lifecycle management
+- Webpack as the build tool
+- Vue 2 for the settings menu and overlay UI
+- A WebSocket client for real-time communication with FFZ servers
+- The add-on system, allowing third-party developers to extend FFZ
+
+Some features from v3 were not carried forward immediately. The v4 branch has been in active development since 2017 and continues to expand.
+
+## v3 history
+
+The following is a summary of significant milestones from the v3 era (pre-React Twitch).
+
+<AccordionGroup>
+  <Accordion title="3.5.536 — November 2017 (final v3 release)">
+    - Enabled transparent (colored) badges in non-WebKit browsers.
+
+    This was the last release of the v3 client before development shifted entirely to v4.
+  </Accordion>
+
+  <Accordion title="3.5.533 — October 2017">
+    - Added experimental **promoted messages** feature. Moderators can use `/ffz promote <id>` to surface a message in the Recent Highlights panel for users who have the feature enabled.
+  </Accordion>
+
+  <Accordion title="3.5.529 — September 2017">
+    - Rewrote tooltip rendering for better positioning.
+    - Added clickable links inside Following tooltips.
+  </Accordion>
+
+  <Accordion title="3.5.519 — September 2017 (Emote Data Update)">
+    - Switched to querying the socket server for emote set associations rather than pre-loading data into the client.
+    - Added support for multiple subscription tiers in the Channel Emoticons menu.
+  </Accordion>
+
+  <Accordion title="3.5.515 — September 2017">
+    - Added rich content in chat (clips, videos, shared purchases).
+    - Added option to disable rich content.
+    - API: added `replaces` field to emoticons to allow extension emotes to replace Twitch emotes.
+  </Accordion>
+
+  <Accordion title="3.5.508 — August 2017">
+    - API: added `room-recent-highlights` event.
+    - API: allowed extensions to suppress chat messages via the `room-message` event.
+  </Accordion>
+
+  <Accordion title="3.5.506 — July 2017">
+    - Added option to hide Trending Emotes in chat.
+  </Accordion>
+
+  <Accordion title="3.5.26 — Earlier releases">
+    - Fully customizable in-line moderation icons.
+    - Option to display channel logos in the directory.
+    - Classic Player style with always-visible controls.
+    - Stream Latency display under the player.
+    - Stream Uptime on directory listings.
+    - Font Family option for changing the chat font.
+    - Badge style options: rounded, circular, transparent.
+    - Twitter and Google Noto emoji support.
+    - Settings backup and restore.
+    - Artificial Chat Delay option.
+    - Following Sidebar Tooltips with live channel list.
+    - Change Log (added in 3.5.7).
+  </Accordion>
+</AccordionGroup>

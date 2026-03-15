@@ -1,0 +1,180 @@
+---
+title: "Installation"
+description: "Install FrankerFaceZ as a browser extension or userscript, and configure your development environment."
+---
+
+FrankerFaceZ can run in two modes. Choose the one that fits your goal:
+
+<CardGroup cols={2}>
+  <Card title="Browser extension" icon="puzzle-piece">
+    Packaged extension for Chrome, Firefox, and Chromium-based browsers. Recommended for end users.
+  </Card>
+  <Card title="Userscript" icon="file-code">
+    Loaded by a userscript manager such as Tampermonkey. Recommended for developers — supports the local dev server workflow.
+  </Card>
+</CardGroup>
+
+## How the two modes differ
+
+<Tabs>
+  <Tab title="Browser extension">
+    The extension entry point is `entry_ext.js`. It:
+
+    - Runs as a content script injected by the browser into Twitch pages.
+    - Detects Firefox vs. Chromium and sets up the appropriate messaging bridge between the page context and the extension service worker.
+    - Loads the FFZ bundle from the extension package itself (`browser.runtime.getURL('web')`).
+    - Communicates with the service worker using `browser.runtime.sendMessage`.
+
+    The browser extension build is produced with:
+
+    ```bash
+    pnpm build:ext
+    ```
+
+    To run the extension build through the dev server (useful for testing extension-specific paths):
+
+    ```bash
+    pnpm dev:ext
+    ```
+  </Tab>
+  <Tab title="Userscript">
+    The userscript entry point is `entry.js`. It:
+
+    - Runs on Twitch pages injected by the userscript manager.
+    - Reads `localStorage.ffzDebugMode` to select the bundle server.
+    - When debug mode is `true` **and** the page body has the `ffz-dev` CSS class, loads from `https://localhost:8000`.
+    - Otherwise loads from `https://cdn2.frankerfacez.com`.
+
+    Enable debug mode from the Twitch console:
+
+    ```javascript
+    localStorage.ffzDebugMode = true;
+    ```
+
+    Then refresh Twitch. FFZ will load your local build instead of the CDN build.
+  </Tab>
+</Tabs>
+
+## Development installation
+
+<Steps>
+  <Step title="Install Node.js and pnpm">
+    Install [Node.js](https://nodejs.org/) (LTS recommended), then install [pnpm](https://pnpm.io/):
+
+    ```bash
+    npm install -g pnpm
+    ```
+  </Step>
+
+  <Step title="Install project dependencies">
+    From the repository root:
+
+    ```bash
+    pnpm install
+    ```
+  </Step>
+
+  <Step title="Start the local dev server">
+    ```bash
+    pnpm start
+    ```
+
+    The server starts on **port 8000** using `webpack-dev-server`. It serves locally built files and proxies any missing files to the FFZ CDN at `cdn2.frankerfacez.com`.
+  </Step>
+</Steps>
+
+## Local development server details
+
+The dev server uses `webpack-dev-server` internally and generates a self-signed TLS certificate so it can serve content over HTTPS (required by Twitch's CSP).
+
+<Warning>
+  You must visit `https://localhost:8000` in your browser and accept the self-signed certificate before FFZ can load scripts from your dev server. Do this once per browser profile.
+</Warning>
+
+Bundle selection is controlled by the `FLAVOR` variable in the entry point. The entry scripts automatically pick the right flavor based on the current URL:
+
+| Flavor | When used |
+|---|---|
+| `avalon` | Main Twitch UI (`twitch.tv/*`) |
+| `player` | Popout player (`player.twitch.tv`) |
+| `clips` | Clips pages (`clips.twitch.tv`) except `/embed` |
+| `bridge` | Internal FFZ bridge page (`/p/ffz_bridge/`) |
+
+## Editor setup
+
+FFZ uses tabs (not spaces) for indentation and `\n` line endings. Configure your editor accordingly.
+
+### ESLint for VS Code
+
+Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) for Visual Studio Code, then add the following to your workspace settings (`.vscode/settings.json`):
+
+```json
+{
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "vue"
+  ]
+}
+```
+
+To run ESLint manually across all source files:
+
+```bash
+pnpm eslint
+```
+
+This runs `eslint "src/**/*.{js,jsx,vue}"`.
+
+## Font editing with Fontello
+
+FFZ ships a custom icon font managed through [Fontello](https://fontello.com/). To edit it:
+
+<Steps>
+  <Step title="Open a Fontello session">
+    ```bash
+    pnpm font
+    ```
+
+    This runs `fontello-cli edit` using the project's `fontello.client.json` configuration. If no session exists yet, it creates one and opens Fontello in your default browser.
+  </Step>
+
+  <Step title="Edit glyphs in Fontello">
+    Add, remove, or modify glyphs in the Fontello UI.
+  </Step>
+
+  <Step title="Save changes">
+    <Tabs>
+      <Tab title="Dev server running">
+        Click Fontello's **Export** button. With `pnpm start` active, changes are picked up automatically.
+      </Tab>
+      <Tab title="Dev server not running">
+        Download the changes from your session manually:
+
+        ```bash
+        pnpm font:save
+        ```
+
+        This runs `fontello-cli save` followed by `node bin/update_fonts`.
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+### Font commands reference
+
+| Command | Description |
+|---|---|
+| `pnpm font` | Open a Fontello session in the browser (alias for `pnpm font:edit`) |
+| `pnpm font:edit` | Same as above — runs `fontello-cli edit` |
+| `pnpm font:save` | Download changes from Fontello and run `bin/update_fonts` |
+
+## Build commands reference
+
+| Command | Description |
+|---|---|
+| `pnpm build` | Production build |
+| `pnpm build:dev` | Development build (no server) |
+| `pnpm build:ext` | Browser extension production build |
+| `pnpm build:stats` | Production build with webpack stats JSON |
+| `pnpm clean` | Delete the `dist/` output directory |

@@ -1,0 +1,154 @@
+---
+title: "Add-on structure"
+description: "Learn how to organise a FrankerFaceZ add-on using the Addon root module, child Module instances, and the AddonInfo manifest."
+---
+
+Every add-on is built on FFZ's module system. At minimum an add-on has a single root module — a class extending `Addon`. Larger add-ons split functionality across multiple `Module` instances that are registered as children of the root.
+
+## The root module
+
+The root module is the entry point of your add-on. It must extend `Addon` (from `utilities/addon`) and call `Addon.register()` to insert itself into the FFZ module tree at `addon.<id>`.
+
+```typescript
+import { Addon } from 'utilities/addon';
+
+export default class MyAddon extends Addon {
+  // ...
+}
+
+MyAddon.register();
+```
+
+## Single-module add-ons
+
+For small add-ons a single class is sufficient. All logic lives in the root module's lifecycle hooks (`onEnable`, `onDisable`) and its injected dependencies.
+
+```
+add-on root (Addon)
+  └── (no children)
+```
+
+## Multi-module add-ons
+
+For larger add-ons, split concerns into separate `Module` subclasses. Register them as children of the root using `this.inject(name, ModuleClass)` or `loadFromContext()`.
+
+```
+add-on root (Addon)   ← path: addon.my-addon
+  ├── chat            ← path: addon.my-addon.chat
+  ├── emotes          ← path: addon.my-addon.emotes
+  └── settings-ui     ← path: addon.my-addon.settings_ui
+```
+
+Each child module has its own lifecycle, its own injected dependencies, and its own event namespace.
+
+### Registering child modules manually
+
+```typescript
+import { Addon } from 'utilities/addon';
+import ChatComponent from './chat';
+import EmotesComponent from './emotes';
+
+export default class MyAddon extends Addon {
+  declare chat: ChatComponent;
+  declare emotes: EmotesComponent;
+
+  constructor(name?: string, parent?: any) {
+    super(name, parent);
+    // inject() with a class registers the module and assigns it to this.chat
+    this.inject('chat', ChatComponent);
+    this.inject('emotes', EmotesComponent);
+  }
+}
+```
+
+### Loading modules from a webpack context
+
+For add-ons with many sub-modules, use `loadFromContext()`. It iterates a webpack `require.context`, registers each exported `Module` subclass as a child, and returns a map of the results.
+
+```typescript
+async onLoad() {
+  await this.loadFromContext(
+    require.context('./modules', true, /\/index\.[jt]sx?$/)
+  );
+}
+```
+
+Each file should export its module class as `default` or as a named export called `module`.
+
+<Note>
+`populate()` was the old name for this method and is deprecated. Use `loadFromContext()` instead.
+</Note>
+
+## Module paths and add-on IDs
+
+FFZ derives the add-on ID from the module tree path. When `Addon.register('my-addon', ...)` is called, the root module is mounted at `addon.my-addon`. Every child module's path extends this:
+
+- Root: `addon.my-addon`
+- Child `chat`: `addon.my-addon.chat`
+
+The add-on ID is also used as the prefix for settings keys. A setting registered by the add-on should use keys like `my-addon.setting-name`.
+
+## The manifest in depth
+
+The manifest (`AddonInfo`) lives as a `static info` property on your `Addon` subclass, or is passed directly to `Addon.register()`.
+
+```typescript
+export default class MyAddon extends Addon {
+  static info = {
+    id: 'my-addon',
+    version: '1.2.0',
+    name: 'My Addon',
+    short_name: 'MAddon',
+    author: 'Your Name',
+    description: 'Does something useful. Supports **Markdown**.',
+    website: 'https://example.com',
+    settings: 'add_ons.my_addon',  // settings UI path
+    targets: ['main', 'clips'],
+    requires: ['another-addon'],   // other add-on IDs
+    created: new Date('2024-01-01'),
+    // Runtime fields filled by AddonManager:
+    dev: false,
+    external: false,
+    required_by: [],
+  };
+}
+```
+
+### `settings` field
+
+When set, a **Settings** button appears next to your add-on in the panel. The value is a settings UI path key. By convention this is `add_ons.<addon_id_snake_case>`.
+
+### `targets` field
+
+Controls which FFZ flavors load your add-on. Valid values are:
+
+| Value | Description |
+|-------|-------------|
+| `"main"` | Standard Twitch pages |
+| `"clips"` | Clip player pages |
+| `"player"` | Standalone Twitch player |
+
+## Dev mode
+
+When the **Use Local Development Server** setting (`addons.dev.server`) is enabled, `AddonManager` fetches `addons.json` from `https://localhost:8001/script/addons.json`. Add-ons listed there are flagged with `dev: true`.
+
+Your script is then loaded from `https://localhost:8001/script/addons/<id>/script.js`, letting you iterate without publishing to the CDN.
+
+<Warning>
+Dev server loading is disabled when FFZ is running as a browser extension, as loading external code violates extension store policies.
+</Warning>
+
+## Recommended file layout
+
+```
+my-addon/
+  src/
+    index.ts        ← Addon root class + register() call
+    modules/
+      chat/
+        index.ts    ← Module subclass
+      emotes/
+        index.ts
+  package.json
+  webpack.config.js
+```

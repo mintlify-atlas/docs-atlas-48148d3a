@@ -1,0 +1,532 @@
+---
+title: 'Utilities reference'
+description: 'Overview of the FrankerFaceZ.utilities namespace and the helper functions, classes, and constants available to add-on authors.'
+keywords: ['utilities', 'object', 'time', 'color', 'logging', 'constants', 'namespace']
+---
+
+FrankerFaceZ exposes a single global entry point, `window.FrankerFaceZ`, and hangs all utility modules off of `FrankerFaceZ.utilities`. You never need to import from a module path — every export described on this page is reachable through that object at runtime.
+
+```typescript
+const { object, time, color, logging, constants } = FrankerFaceZ.utilities;
+```
+
+## The utilities namespace
+
+The table below lists every sub-namespace available on `FrankerFaceZ.utilities`.
+
+| Key | Source module | Contents |
+|-----|--------------|----------|
+| `addon` | `utilities/addon` | `Addon` base class for add-ons |
+| `blobs` | `utilities/blobs` | Blob serialization helpers |
+| `color` | `utilities/color` | `Color` object, `ColorAdjuster` |
+| `constants` | `utilities/constants` | `SERVER`, `DEBUG`, `EmoteTypes`, browser flags, … |
+| `dialog` | `utilities/dialog` | Modal dialog utilities |
+| `dom` | `utilities/dom` | `createElement`, `ManagedStyle`, `sanitize` |
+| `events` | `utilities/events` | Event emitter helpers |
+| `fontAwesome` | `utilities/font-awesome` | Font Awesome icon helpers |
+| `graphql` | `utilities/graphql` | GraphQL query helpers |
+| `logging` | `utilities/logging` | `Logger` class, `LogLevel` enum |
+| `module` | `utilities/module` | `Module` base class |
+| `object` | `utilities/object` | General-purpose object/array helpers |
+| `time` | `utilities/time` | Duration and buster helpers |
+| `tooltip` | `utilities/tooltip` | `Tooltip` class |
+| `i18n` | `utilities/translation-core` | i18n helpers |
+| `filtering` | `utilities/filtering` | `FilterType`, `createTester` |
+
+---
+
+## utilities/object
+
+General-purpose helpers for objects, arrays, async control flow, and URL generation.
+
+### Object access
+
+#### `has(object, key)`
+
+Typesafe own-property check. Returns `true` if `object` has an own property named `key`, and narrows the type accordingly.
+
+```typescript
+const { has } = FrankerFaceZ.utilities.object;
+
+if (has(data, 'user')) {
+    console.log(data.user); // TypeScript knows this key exists
+}
+```
+
+#### `get(path, object)`
+
+Retrieves a value from a nested object using a dot-separated path. Supports the special segment `@each` to map over arrays or plain objects, and `@last` to access the last element of an array. Returns `undefined` if any segment along the path is missing.
+
+```typescript
+const { get } = FrankerFaceZ.utilities.object;
+
+get('user.login', data);           // data.user.login
+get('items.@each.name', data);     // data.items.map(x => x.name)
+get('items.@last', data);          // data.items[data.items.length - 1]
+```
+
+### Async helpers
+
+#### `timeout(promise, delay)`
+
+Wraps a `Promise` so that it rejects with a `TimeoutError` if it has not settled within `delay` milliseconds.
+
+```typescript
+const { timeout } = FrankerFaceZ.utilities.object;
+
+try {
+    const result = await timeout(fetch('/api/data'), 5000);
+} catch (err) {
+    if (err instanceof TimeoutError)
+        console.log('Request timed out');
+}
+```
+
+#### `sleep(delay)`
+
+Returns a `Promise` that resolves after `delay` milliseconds.
+
+```typescript
+const { sleep } = FrankerFaceZ.utilities.object;
+await sleep(500); // wait 500 ms
+```
+
+#### `debounce(fn, delay, immediate?)`
+
+Returns a debounced wrapper around `fn` that delays execution until `delay` milliseconds after the last call.
+
+- `immediate = false` (default) — runs after the quiet period ends.
+- `immediate = true` — runs immediately, then enforces a cooldown.
+- `immediate = 2` — runs immediately *and* again after the quiet period if called again during the cooldown.
+
+```typescript
+const { debounce } = FrankerFaceZ.utilities.object;
+
+const save = debounce(() => this.persist(), 300);
+document.addEventListener('input', save);
+```
+
+#### `once(fn)`
+
+Returns a wrapper that ensures the async function `fn` is only executing once at a time. While a call is in progress, subsequent calls return the same `Promise`.
+
+```typescript
+const { once } = FrankerFaceZ.utilities.object;
+
+const loadData = once(async () => {
+    const resp = await fetch('/data');
+    return resp.json();
+});
+
+// Both calls share the same in-flight request
+const [a, b] = await Promise.all([loadData(), loadData()]);
+```
+
+#### `fetchJSON(url, init?, errorValue?)`
+
+Performs a `fetch` request and returns the parsed JSON body if the response status is `ok`, or `null` (configurable via `errorValue`) on error or non-ok status. Errors are silently caught.
+
+```typescript
+const { fetchJSON } = FrankerFaceZ.utilities.object;
+
+const data = await fetchJSON<MyType>('https://api.frankerfacez.com/v1/set/global');
+if (data) {
+    // data is typed as MyType
+}
+```
+
+### Concurrency control
+
+#### `TicketLock`
+
+A [ticket lock](https://en.wikipedia.org/wiki/Ticket_lock) that limits the number of concurrently executing sections. Call `wait()` to acquire a ticket. The returned function **must** be called when you are done to release the ticket back to the pool.
+
+```typescript
+const { TicketLock } = FrankerFaceZ.utilities.object;
+
+const apiLock = new TicketLock(5); // at most 5 simultaneous requests
+
+async function callApi(url: string) {
+    const release = await apiLock.wait();
+    try {
+        return await fetch(url).then(r => r.json());
+    } finally {
+        release();
+    }
+}
+```
+
+### Collections
+
+#### `SourcedSet<T>`
+
+A set-like collection where every entry is tagged with the `source` that added it. This lets multiple add-ons contribute items to the same collection and later remove only their own entries without affecting others.
+
+Used internally by FFZ to track which emote sets and badges are active, with each add-on acting as a separate source.
+
+```typescript
+const { SourcedSet } = FrankerFaceZ.utilities.object;
+
+const set = new SourcedSet<string>();
+
+set.set('my-addon', ['emote-set-1', 'emote-set-2']);
+set.push('my-addon', 'emote-set-3');
+set.remove('my-addon', 'emote-set-2');
+set.delete('my-addon'); // remove all entries from this source
+
+set.includes('emote-set-1'); // true
+```
+
+Key methods:
+
+| Method | Description |
+|--------|-------------|
+| `set(source, items)` | Replace the source's entries with the provided items |
+| `extend(source, ...items)` | Add items to the source without removing existing ones |
+| `push(source, item)` | Add a single item to the source |
+| `remove(source, item)` | Remove a single item from the source |
+| `delete(source)` | Remove all items from the source |
+| `has(source)` | Check whether the source has any entries |
+| `get(source)` | Get the array of items for a source |
+| `includes(value)` | Check whether the value exists in any source |
+| `_cache` | Direct access to the current combined `Set` or `Array` |
+
+Pass `true` as the first constructor argument to use a `Set` internally instead of an array (faster `includes` for large collections).
+
+### Deep copy and equality
+
+#### `deep_copy(object)`
+
+Recursively clones an object. Handles `Date`, `RegExp`, `Set`, `Map`, arrays, and plain objects. Throws on circular structures.
+
+<Note>
+`deep_copy` predates `structuredClone`. For new code, prefer `structuredClone` unless you need the legacy behaviour for functions and Promises, which `deep_copy` wraps rather than omitting.
+</Note>
+
+```typescript
+const { deep_copy } = FrankerFaceZ.utilities.object;
+
+const copy = deep_copy(originalConfig);
+```
+
+#### `deep_equals(first, second, ignoreUndefined?)`
+
+Recursive structural equality check with protection against circular references.
+
+#### `array_equals(a, b)`
+
+Checks that two arrays have the same length and identical items at every index.
+
+### String helpers
+
+#### `truncate(input, target?, overage?, ellipsis?, breakLine?, trim?)`
+
+Truncates a string to approximately `target` characters. Attempts to break at whitespace rather than mid-word; accepts up to `overage` additional characters to find a better break point. Appends `ellipsis` (default `'…'`) when truncating.
+
+```typescript
+const { truncate } = FrankerFaceZ.utilities.object;
+
+truncate('This is a very long message that goes on forever', 20);
+// → 'This is a very long…'
+```
+
+#### `escape_regex(str)`
+
+Escapes a string for safe inclusion inside a `RegExp` pattern.
+
+#### `glob_to_regex(input)`
+
+Converts a glob pattern to a regex string. Supports `*` (no whitespace), `**` (anything), `?`, `[...]`, and `{a,b}` alternation.
+
+#### `split_chars(str)`
+
+Splits a string into an array of individual Unicode characters, correctly handling surrogate pairs. Used during chat message tokenization.
+
+### Twitch emote URLs
+
+#### `getTwitchEmoteURL(id, scale, animated?, dark?)`
+
+Builds a Twitch CDN URL for an emote image.
+
+- `scale` — `1`, `2`, or `4` (mapped to `1.0`, `2.0`, `3.0` on the CDN).
+- `animated` — if `true`, allows animated GIF variants.
+- `dark` — if `true` (default), requests the dark-background version.
+
+```typescript
+const { getTwitchEmoteURL } = FrankerFaceZ.utilities.object;
+
+const url = getTwitchEmoteURL('425618', 2, true, true);
+// → '//static-cdn.jtvnw.net/emoticons/v2/425618/default/dark/2.0'
+```
+
+#### `getTwitchEmoteSrcSet(id, animated?, dark?, big?)`
+
+Builds an `srcset` string for a Twitch emote, suitable for an `<img>` element's `srcset` attribute.
+
+### Miscellaneous
+
+#### `generateUUID()`
+
+Generates a random UUIDv4 string. Uses `crypto.randomUUID` when available, with a fallback implementation for older browsers.
+
+#### `generateHex(length?)`
+
+Generates a random hexadecimal string of the given length (default 40) using `crypto.getRandomValues`.
+
+#### `pick_random(obj)`
+
+Returns a randomly selected value from an array or a randomly selected property value from a plain object.
+
+#### `maybe_call(input, ctx, ...args)`
+
+Resolves a value that may be either a plain value or a function. If `input` is a function, calls it with `ctx` as `this` and the remaining arguments. Otherwise returns the value directly.
+
+#### `sha256(message)`
+
+Asynchronously computes the SHA-256 hash of a string and returns it as a hex string, using `crypto.subtle.digest`.
+
+---
+
+## utilities/time
+
+#### `getBuster(resolution?)`
+
+Returns a cache-busting integer that changes at most once every `resolution` seconds (default `5`). Useful for preventing stale responses from short-lived CDN caches without invalidating too aggressively.
+
+```typescript
+const { getBuster } = FrankerFaceZ.utilities.time;
+
+const url = `https://cdn.example.com/data.json?_=${getBuster(60)}`;
+```
+
+#### `duration_to_string(elapsed, separateDays?, daysOnly?, noHours?, noSeconds?)`
+
+Formats an elapsed time in seconds to a human-readable string such as `'1:23:45'` or `'2 days, 01:23'`.
+
+#### `print_duration(seconds)`
+
+Formats a duration as `'H:MM:SS'` (or `'MM:SS'` when under an hour).
+
+#### `durationForChat(elapsed)`
+
+Formats a duration as a compact string like `'1h23m45s'`, suitable for chat display.
+
+#### `durationForURL(elapsed)`
+
+Formats a duration as a URL-safe string like `'1h23m45s'` without a seconds component if zero.
+
+---
+
+## utilities/color
+
+### The `Color` object
+
+`Color` is a namespace-style object (not a class) that gives you access to all color space classes and parsing utilities.
+
+```typescript
+const { Color } = FrankerFaceZ.utilities.color;
+
+const rgba = Color.fromCSS('#ff6600');       // RGBAColor
+const hsla = rgba.toHSLA();                  // HSLAColor
+const hsva = rgba.toHSVA();                  // HSVAColor
+const hex  = rgba.toHex();                   // '#ff6600'
+const css  = rgba.toCSS();                   // '#ff6600' or 'rgba(...)'
+```
+
+All color objects are **immutable**. Mutation methods (prefixed with `_`) return a new instance.
+
+#### Supported color spaces
+
+| Class | Accessed via | Components |
+|-------|-------------|------------|
+| `RGBAColor` | `Color.RGBA` | `r`, `g`, `b`, `a` (0–255 / 0–1) |
+| `HSVAColor` | `Color.HSVA` | `h`, `s`, `v`, `a` (0–1) |
+| `HSLAColor` | `Color.HSLA` | `h`, `s`, `l`, `a` (0–1) |
+| `XYZAColor` | `Color.XYZA` | `x`, `y`, `z`, `a` |
+| `LUVAColor` | `Color.LUVA` | `l`, `u`, `v`, `a` |
+
+Every color instance implements the `BaseColor` interface:
+
+```typescript
+interface BaseColor {
+    eq(other: BaseColor | null | undefined, ignoreAlpha: boolean): boolean;
+    toCSS(): string;
+    toHex(): string;
+    toRGBA(): RGBAColor;
+    toHSVA(): HSVAColor;
+    toHSLA(): HSLAColor;
+    toXYZA(): XYZAColor;
+    toLUVA(): LUVAColor;
+}
+```
+
+#### Parsing
+
+```typescript
+Color.fromCSS('#rgb');        // 3-digit hex
+Color.fromCSS('#rrggbb');     // 6-digit hex
+Color.fromCSS('#rrggbbaa');   // 8-digit hex with alpha
+Color.fromCSS('red');         // named CSS color via canvas API
+```
+
+#### Luminance and contrast
+
+`RGBAColor` exposes a `luminance()` method that returns the WCAG relative luminance (0–1). `HSLAColor` exposes `targetLuminance(target)` which binary-searches for the lightness value that achieves the target luminance while preserving hue and saturation.
+
+### `ColorAdjuster`
+
+`ColorAdjuster` adjusts foreground colors (such as username colors in chat) to ensure they remain legible against a given background. It caches results for performance.
+
+```typescript
+const { ColorAdjuster } = FrankerFaceZ.utilities.color;
+
+const adjuster = new ColorAdjuster(
+    '#0e0e10', // background color (Twitch dark theme)
+    2,         // mode (LUV-based contrast)
+    4.5        // minimum contrast ratio
+);
+
+const adjusted = adjuster.process('#ff0000');
+```
+
+**Constructor:** `new ColorAdjuster(base?, mode?, contrast?)`
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `base` | `'#232323'` | The background color as a CSS string |
+| `mode` | `0` | Adjustment algorithm (see below) |
+| `contrast` | `4.5` | Target contrast ratio |
+
+**Modes:**
+
+| Value | Algorithm |
+|-------|----------|
+| `-1` | Strip all colors (return empty string) |
+| `0` | Pass-through, no adjustment |
+| `1` | HSL luminance adjustment |
+| `2` | LUV perceptual lightness adjustment |
+| `3` | HSL loop (BTTV-style) |
+| `4` | RGB brightness loop |
+
+Changing `base`, `mode`, or `contrast` via their setters clears the cache and recomputes the contrast target.
+
+---
+
+## utilities/logging
+
+### `Logger`
+
+The `Logger` class provides a hierarchical, level-filtered logging system. Every FFZ module gets a logger named after the module's path (e.g. `'chat.tokenizer'`), which it exposes as `this.log`.
+
+#### Log levels
+
+```typescript
+enum LogLevel {
+    Verbose = 0,
+    Debug   = 1,
+    Info    = 2,
+    Warning = 4,
+    Error   = 8,
+    Off     = 99
+}
+```
+
+The default level is `Info`. Set `localStorage.ffzLogLevel = 'Debug'` to increase verbosity.
+
+#### Using the logger in a module
+
+Inside any `Module` subclass, `this.log` is already a configured `Logger` instance. You do not need to create one yourself.
+
+```typescript
+this.log.info('Add-on loaded.');
+this.log.debug('Processing', items.length, 'items.');
+this.log.warn('Setting not found, using default.');
+this.log.error('Failed to load emote data.', err);
+```
+
+#### Creating a child logger
+
+```typescript
+const childLog = this.log.get('sub-system');
+childLog.info('Hello from sub-system');
+// Prints: FFZ [addon-name.sub-system]: Hello from sub-system
+```
+
+#### Logging methods
+
+| Method | Level |
+|--------|-------|
+| `verbose(message, ...args)` | `Verbose` |
+| `debug(message, ...args)` | `Debug` |
+| `info(message, ...args)` | `Info` |
+| `warn(message, ...args)` | `Warning` |
+| `error(message, ...args)` | `Error` |
+| `capture(exc, opts?)` | Sends to Sentry and logs as error |
+
+---
+
+## utilities/constants
+
+All constants are re-exported from `FrankerFaceZ.utilities.constants`.
+
+### Server and environment
+
+| Constant | Type | Description |
+|----------|------|-------------|
+| `DEBUG` | `boolean` | `true` when running in FFZ dev mode |
+| `SERVER` | `string` | Base URL of the FFZ CDN (`cdn2.frankerfacez.com` or `localhost:8000` in dev) |
+| `API_SERVER` | `string` | Base URL of the FFZ API (`api.frankerfacez.com`) |
+| `NEW_API` | `string` | Base URL of the FFZ v2 API (`api2.frankerfacez.com`) |
+| `SERVER_OR_EXT` | `string` | CDN base URL or, when running as a web extension, the extension's public resource path |
+| `EXTENSION` | `boolean` | `true` when loaded as a packed web extension |
+
+### Browser detection
+
+| Constant | Description |
+|----------|-------------|
+| `IS_OSX` | `true` on macOS |
+| `IS_WIN` | `true` on Windows |
+| `IS_WEBKIT` | `true` on WebKit-based browsers |
+| `IS_FIREFOX` | `true` on Firefox |
+
+### Twitch emotes
+
+| Constant | Description |
+|----------|-------------|
+| `TWITCH_EMOTE_V2` | Base CDN path for Twitch emote images |
+| `EmoteTypes` | Enum of all possible Twitch emote types (see below) |
+| `TWITCH_GLOBAL_SETS` | Emote set IDs that are globally available |
+| `TWITCH_POINTS_SETS` | Emote set IDs for channel points unlocks |
+| `TWITCH_PRIME_SETS` | Emote set IDs for Twitch Prime subscribers |
+
+```typescript
+enum EmoteTypes {
+    Unknown,
+    Prime,
+    Turbo,
+    LimitedTime,
+    ChannelPoints,
+    Unavailable,
+    Subscription,
+    BitsTier,
+    Global,
+    TwoFactor,
+    Follower
+}
+```
+
+### Keyboard
+
+`KEYS` is a map of key names to their `keyCode` values:
+
+```typescript
+const { KEYS } = FrankerFaceZ.utilities.constants;
+
+document.addEventListener('keydown', e => {
+    if (e.keyCode === KEYS.Escape) {
+        // handle escape
+    }
+});
+```
+
+`BAD_HOTKEYS` is a list of key combination strings (e.g. `'f'`, `'space'`, `'k'`) that conflict with Twitch's own shortcuts and must not be used as custom hotkeys.

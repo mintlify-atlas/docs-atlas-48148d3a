@@ -1,0 +1,131 @@
+---
+title: "Chat System Overview"
+description: "Architecture of the FrankerFaceZ chat module, including sub-modules, the tokenizer pipeline, Room and User objects, and how add-ons can extend chat."
+---
+
+The `Chat` module (`src/modules/chat/index.js`) is the primary module responsible for rendering enhancements in Twitch chat. It coordinates several sub-modules and provides the infrastructure that add-ons use to inject custom emotes, badges, and message rendering logic.
+
+## Module hierarchy
+
+The `Chat` module injects the following sub-modules:
+
+<CardGroup cols={2}>
+  <Card title="Badges" icon="certificate" href="/addons/badges">
+    Twitch badge management, custom badge injection, and color adjustment.
+  </Card>
+  <Card title="Emotes" icon="face-smile" href="/addons/emotes">
+    Emote sets, modifier flags, rendering pipeline, and custom emote providers.
+  </Card>
+  <Card title="Emoji" icon="star">
+    Unicode emoji support with category and joiner replacement handling.
+  </Card>
+  <Card title="Overrides" icon="pen">
+    Username display overrides and chat line customization.
+  </Card>
+  <Card title="Room" icon="users">
+    Per-channel room state, emote sets, and badge data.
+  </Card>
+  <Card title="User" icon="user">
+    Per-user state, color, and badge data.
+  </Card>
+  <Card title="Actions" icon="bolt">
+    Chat message action buttons and handlers.
+  </Card>
+  <Card title="Tokenizers" icon="code" href="/addons/tokenizers">
+    Message parsing pipeline that converts chat text into renderable tokens.
+  </Card>
+</CardGroup>
+
+## How FFZ hooks into chat
+
+FFZ intercepts Twitch's webpack module system and patches the React components responsible for rendering chat messages. When a message arrives, FFZ runs it through the **tokenizer pipeline** — a prioritized list of processing functions that transform the raw message string into typed tokens (emotes, links, mentions, etc.), which are then rendered into DOM elements.
+
+```javascript
+// From src/modules/chat/index.js
+import Badges from './badges';
+import Emotes from './emotes';
+import Emoji from './emoji';
+import Overrides from './overrides';
+import Room from './room';
+import User from './user';
+import * as TOKENIZERS from './tokenizers';
+import * as RICH_PROVIDERS from './rich_providers';
+import * as LINK_PROVIDERS from './link_providers';
+import Actions from './actions/actions';
+
+export default class Chat extends Module {
+  constructor(...args) {
+    super(...args);
+    this.should_enable = true;
+
+    this.inject('settings');
+    this.inject('i18n');
+    this.inject('tooltips');
+    this.inject(Badges);
+    this.inject(Emotes);
+    this.inject(Emoji);
+    this.inject(Actions);
+    this.inject('overrides', Overrides);
+    // ...
+  }
+}
+```
+
+## Room and User objects
+
+FFZ maintains a `rooms` map and a `users` map on the Chat module:
+
+```javascript
+this.rooms = {};  // keyed by channel login
+this.users = {};  // keyed by user login
+```
+
+- **Room**: Tracks channel-specific emote sets, badge data, and room configuration.
+- **User**: Tracks per-user color, badges, and display name overrides.
+
+Both are created on-demand as chat messages arrive and are cleaned up when the user leaves a channel.
+
+## Settings context
+
+The Chat module creates a settings context that all chat-related settings are read from:
+
+```javascript
+this.context = this.settings.context({});
+```
+
+This context is updated with channel and category data as the user navigates Twitch, enabling profile-based settings to apply automatically.
+
+## Tokenizer pipeline
+
+See the [Tokenizers](/addons/tokenizers) page for full details on how to add custom tokenizers.
+
+At a high level:
+1. A raw chat message string is received.
+2. Each registered tokenizer's `process()` method is called in priority order.
+3. Tokenizers split the message into typed token objects (emote, link, mention, text).
+4. Each token's `render()` function produces a DOM element or React node.
+5. FFZ injects the rendered output into Twitch's chat UI.
+
+## Rich content and link providers
+
+FFZ includes a rich content system for previewing links in chat tooltips:
+
+- **Rich providers** (`rich_providers.js`): Generate structured preview cards for links (videos, images, etc.).
+- **Link providers** (`link_providers.js`): Resolve link metadata from FFZ's link data hosts.
+
+Add-ons can register custom link providers to add support for new URLs.
+
+## Chat actions
+
+The `Actions` sub-module manages the action buttons that appear when hovering over a chat message (timeout, ban, custom actions). Add-ons can register custom action types by providing action renderers and handlers.
+
+## Command prefixes
+
+FFZ tracks command prefixes using a `SourcedSet`:
+
+```javascript
+this.CommandPrefixes = new SourcedSet(true);
+this.CommandPrefixes.set('ffz', ['/', '!']);
+```
+
+Add-ons can add their own command prefixes to prevent those strings from being treated as plain text.

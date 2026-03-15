@@ -1,0 +1,226 @@
+---
+title: "Settings"
+description: "How the FFZ settings system works: profiles, contexts, the SettingsManager API, and how to declare settings in your add-on."
+---
+
+FFZ uses a layered settings system. Settings are declared once with a key and a type, stored across profiles, and resolved through a context that determines which profiles are active. The result is a single value per key that can change dynamically as the context changes — for example, when a user enters a channel where they are a moderator.
+
+## Key concepts
+
+<CardGroup cols={3}>
+  <Card title="Setting" icon="sliders">
+    A named, typed key-value pair with a default, optional processing logic, and optional UI definition.
+  </Card>
+  <Card title="Profile" icon="layer-group">
+    A named collection of setting values. Multiple profiles can be active at once, layered by priority.
+  </Card>
+  <Card title="Context" icon="map-pin">
+    Runtime data (current channel, moderator status, time of day, etc.) used to decide which profiles apply.
+  </Card>
+</CardGroup>
+
+## SettingsManager
+
+`SettingsManager` (path: `'settings'`) is the central module. Modules obtain it via injection:
+
+```typescript
+class MyFeature extends Module {
+  settings!: SettingsManager;
+
+  constructor(name, parent) {
+    super(name, parent);
+    this.inject('settings');
+  }
+}
+```
+
+The `Addon` base class automatically injects `settings` for you.
+
+## Declaring a setting with add()
+
+Call `settings.add()` to register a setting definition. The key identifies the setting globally and must be unique.
+
+```typescript
+this.settings.add('my_addon.show_widget', {
+  default: true,
+  ui: {
+    path: 'Add-Ons > My Add-on >> General',
+    title: 'Show widget',
+    description: 'Display the custom widget in chat.',
+    component: 'setting-check-box'
+  },
+  changed: (val) => {
+    this.updateWidgetVisibility(val);
+  }
+});
+```
+
+### Setting definition fields
+
+| Field | Type | Purpose |
+|---|---|---|
+| `default` | `T` or `(ctx) => T` | The default value when no profile supplies one. Can be a factory function receiving the context. |
+| `type` | `string` | The type handler to use for merging multi-profile values. Defaults to `'basic'`. |
+| `process` | `(ctx, value, meta) => T` | Post-process a value after it is read from the active profiles. |
+| `changed` | `(value) => void` | Called whenever the resolved value changes. |
+| `requires` | `string[]` | Other settings keys this setting depends on. |
+| `ui` | `SettingUiDefinition` | Controls how this setting appears in the FFZ Control Center. |
+
+## Reading settings
+
+Call `settings.get()` to read the current value for a key. This reads from the `main_context`, which reflects whatever profiles are currently active.
+
+```typescript
+const showWidget = this.settings.get('my_addon.show_widget'); // boolean
+```
+
+### Reacting to changes
+
+Use `getChanges()` to receive the current value immediately **and** be called whenever it changes:
+
+```typescript
+this.settings.getChanges('my_addon.show_widget', (value) => {
+  this.updateWidgetVisibility(value);
+}, this);
+```
+
+Use `onChange()` to register a callback that fires only on future changes:
+
+```typescript
+this.settings.onChange('my_addon.show_widget', (value, oldValue) => {
+  this.log.info(`show_widget changed from ${oldValue} to ${value}`);
+}, this);
+```
+
+Alternatively, listen to the `:changed:<key>` event on the `settings` module directly:
+
+```typescript
+this.on('settings:changed:my_addon.show_widget', (value, oldValue) => {
+  // ...
+}, this);
+```
+
+## Type system
+
+FFZ's setting types control how values are merged when multiple profiles are active. The default type (`'basic'`) takes the value from the highest-priority active profile that sets it, falling back to the defined default.
+
+Specialized types (e.g., `array_merge`, `object_merge`) allow values from multiple profiles to be combined. Type handlers are registered in `src/settings/typehandlers/`.
+
+Specify a type in the definition:
+
+```typescript
+this.settings.add('my_addon.filter_list', {
+  default: [],
+  type: 'array_merge',
+  ui: { /* ... */ }
+});
+```
+
+## Profiles
+
+A `SettingsProfile` is a named bucket of raw setting values. Users can create, reorder, and configure profiles in the FFZ Control Center. FFZ ships with two built-in profiles:
+
+| Profile | Context filter |
+|---|---|
+| **Default Profile** | Always active. |
+| **Moderation** | Active when the viewer is a moderator of the current channel. |
+
+Profiles are layered from highest to lowest priority. When multiple active profiles define the same key, the highest-priority profile wins (with the `'basic'` type).
+
+### Creating profiles programmatically
+
+```typescript
+const profile = this.settings.createProfile({
+  name: 'My Custom Profile',
+  description: 'Settings for a specific context.'
+});
+
+// Add a filter so it only activates on a specific channel
+profile.data.context = [{
+  type: 'Channel',
+  data: 'mychannel'
+}];
+
+this.settings.saveProfile(profile);
+```
+
+## Context awareness
+
+The context is a plain object of runtime data. Profiles with context filters are only active when their filters match the current context. The context is updated by the `site` module as the user navigates Twitch.
+
+```typescript
+// Updating context (done by the site module, not typically by add-ons)
+this.settings.updateContext({
+  channel: 'some_streamer',
+  channelID: '12345',
+  moderator: true
+});
+```
+
+You can read a context value directly with the `context.` prefix:
+
+```typescript
+const channelName = this.settings.get('context.channel'); // string | undefined
+```
+
+### Creating a child context
+
+`SettingsContext` instances can be nested. A child context inherits from its parent and can override context keys locally, useful for per-component settings views:
+
+```typescript
+const childCtx = this.settings.context({
+  channel: 'override_channel'
+});
+
+const value = childCtx.get('my_addon.show_widget');
+```
+
+## Declaring setting types in TypeScript
+
+For full type safety with `settings.get()`, augment the `SettingsTypeMap` interface (declared in `src/utilities/types.ts`):
+
+```typescript
+// In your add-on's type declarations file
+declare module 'utilities/types' {
+  interface SettingsTypeMap {
+    'my_addon.show_widget': boolean;
+    'my_addon.widget_color': string;
+    'my_addon.filter_list': string[];
+  }
+}
+```
+
+With this declaration, `settings.get('my_addon.show_widget')` returns `boolean` and the `:changed:my_addon.show_widget` event is typed as `[value: boolean, old_value: boolean]`.
+
+## UI components
+
+The `ui` field of a setting definition controls how it appears in the FFZ Control Center. The `path` string determines its location in the settings tree using `>` as a section separator and `>>` to create a subsection.
+
+```typescript
+ui: {
+  path: 'Add-Ons > My Add-on >> Appearance',
+  title: 'Widget color',
+  component: 'setting-color-box'
+}
+```
+
+Common `component` values:
+
+| Component | Use for |
+|---|---|
+| `setting-check-box` | Boolean toggle |
+| `setting-select-box` | Enum / dropdown |
+| `setting-combo-box` | Enum with free-text fallback |
+| `setting-text-box` | Free-form string |
+| `setting-color-box` | Color picker |
+
+## LocalStorage access
+
+`SettingsManager` exposes reactive localStorage access via `getLS()`. Subscribe to changes using the `ls.` prefix with `settings.get()`:
+
+```typescript
+const rawValue = this.settings.getLS<string>('my_ls_key');
+
+// Reactive read — updates when localStorage changes
+const value = this.settings.get('ls.my_ls_key');
+```

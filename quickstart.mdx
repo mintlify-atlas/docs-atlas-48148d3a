@@ -1,80 +1,100 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get FrankerFaceZ's development environment running and start contributing or building add-ons."
 ---
 
-## Get started in three steps
+This guide gets you from zero to a working FFZ development environment. You'll run a local webpack dev server and load FFZ from it on Twitch.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- [Node.js](https://nodejs.org/) (LTS recommended)
+- [pnpm](https://pnpm.io/) package manager
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/FrankerFaceZ/FrankerFaceZ.git
+    cd FrankerFaceZ
+    ```
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Install dependencies">
+    ```bash
+    pnpm install
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Start the development server">
+    ```bash
+    pnpm start
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    This runs `webpack-dev-server` on port 8000 with hot reloading. The server self-signs a TLS certificate for HTTPS.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <Warning>
+      Your browser will show a security warning for the self-signed certificate at `https://localhost:8000`. You must accept it for FFZ to load from localhost. Visit `https://localhost:8000` directly and click through the warning.
+    </Warning>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Install the FFZ userscript">
+    For development, use the **userscript** version of FFZ (not the browser extension). Install a userscript manager such as [Tampermonkey](https://www.tampermonkey.net/), then add the FFZ development userscript.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    The userscript is designed to load from your local dev server automatically when debug mode is enabled.
+  </Step>
 
-## Next steps
+  <Step title="Enable debug mode on Twitch">
+    Open Twitch in your browser and run this in the browser console:
 
-Now that you have your docs running, explore these key features:
+    ```javascript
+    localStorage.ffzDebugMode = true;
+    ```
+
+    Then refresh the page. FFZ will now load from your local development server at `https://localhost:8000` instead of the production CDN.
+  </Step>
+
+  <Step title="Verify the setup">
+    Open your browser's developer console on Twitch. You should see FFZ initialization log messages similar to:
+
+    ```
+    [FFZ] Initialization complete in 245.12345ms.
+    ```
+
+    You can also access the FFZ instance directly:
+
+    ```javascript
+    window.ffz          // The FrankerFaceZ instance
+    window.ffz.version  // Version info
+    FrankerFaceZ.get()  // Same as window.ffz
+    ```
+  </Step>
+</Steps>
+
+## Available dev commands
+
+| Command | Description |
+|---------|-------------|
+| `pnpm start` / `pnpm dev` | Webpack dev server with hot reload (development mode) |
+| `pnpm dev:prod` | Webpack dev server in production mode |
+| `pnpm dev:ext` | Webpack dev server for browser extension build |
+| `pnpm build` | Production build |
+| `pnpm build:dev` | Development build (no watch) |
+| `pnpm build:ext` | Browser extension build |
+| `pnpm clean` | Remove the `dist/` directory |
+| `pnpm eslint` | Lint all JS and Vue files |
+
+## What's next
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="wrench" href="/installation">
+    Full installation details including editor setup and font editing.
+  </Card>
+  <Card title="Build an Add-on" icon="puzzle-piece" href="/addons/quickstart">
+    Create your first FFZ add-on using the Module and Addon APIs.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/contributing/architecture">
+    Understand how FFZ's module system and site integration work.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts/module-system">
+    Learn about the module system, settings, and events.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

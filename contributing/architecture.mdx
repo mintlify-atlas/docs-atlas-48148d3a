@@ -1,0 +1,141 @@
+---
+title: "Architecture"
+description: "High-level overview of the FrankerFaceZ codebase: entry points, module tree, site modules, chat system, and utilities."
+keywords: ["architecture", "modules", "webpack", "vue", "react", "chat", "site"]
+---
+
+## Overview
+
+FrankerFaceZ is a Twitch enhancement suite built on a custom module system. The client is loaded either as a userscript or as a browser extension. At runtime, modules are discovered automatically and initialized in dependency order.
+
+The project targets ES2020, uses Vue 2 for most UI components, and React 18 for select components where Twitch's own React tree needs to be extended.
+
+## Entry points
+
+| File | Mode | Description |
+|------|------|-------------|
+| `src/entry.js` | Userscript | Loaded by the userscript manager. Bootstraps the client from the CDN or the local dev server. |
+| `src/entry_ext.js` | Extension | Loaded by the browser extension. Activates when `FFZ_EXTENSION` is set during the build. |
+| `src/main.ts` | Both | The main application module. Instantiated as `window.ffz` and `window.FrankerFaceZ`. |
+
+## Core module tree
+
+The `FrankerFaceZ` class (defined in `src/main.ts`) is the root of the module tree. On construction it injects the following core modules:
+
+```text
+FrankerFaceZ
+├── settings       SettingsManager    — persistent user settings with profiles
+├── experiments    ExperimentManager  — A/B experiment flag management
+├── i18n           TranslationManager — ICU message format internationalization
+├── staging        StagingSelector    — switches between production and staging CDN
+├── load_tracker   LoadTracker        — tracks async initialization progress
+├── socket         SocketClient       — real-time WebSocket connection to FFZ servers
+├── pubsub         PubSubClient       — MQTT-based pub/sub for channel events
+├── site           Site               — active site module (twitch-twilight)
+└── addons         AddonManager       — loads and manages third-party add-ons
+```
+
+After injection, `discoverModules()` scans `src/modules/` using webpack's `require.context` and registers every module it finds. All modules with `should_enable = true` are then enabled concurrently.
+
+### Accessing the FFZ instance
+
+From a browser console or an add-on:
+
+```javascript
+// Both are equivalent
+const ffz = window.ffz;
+const ffz = FrankerFaceZ.get();
+```
+
+## Site modules
+
+Site modules adapt FFZ to a specific Twitch surface. They live in `src/sites/`:
+
+| Directory | Description |
+|-----------|-------------|
+| `twitch-twilight/` | Main Twitch site (React-based). The default `Site` module. |
+| `clips/` | Clips playback page. |
+| `player/` | Embedded player. |
+| `shared/` | Shared utilities used across site modules. |
+| `base.js` | Base class for all site modules. |
+
+The TypeScript path alias `site` resolves to `src/sites/twitch-twilight/index.js`.
+
+## Chat module
+
+The `Chat` module (`src/modules/chat/index.js`) is the largest module in the codebase. It is auto-discovered and enabled on startup. Its internal hierarchy:
+
+```text
+Chat
+├── Badges      — custom and built-in badge rendering
+├── Emotes      — emote set management and rendering
+├── Emoji       — emoji parsing and rendering (Twitter/Noto)
+├── Actions     — in-line moderation icons and custom chat actions
+├── Overrides   — per-channel and per-user display overrides
+├── Room        — per-room state: emote sets, settings context, message list
+├── User        — per-user state: color, display name, badges
+├── Tokenizers  — message tokenization pipeline (links, emotes, mentions, etc.)
+├── RichProviders — rich content attachment rendering (clips, videos, purchases)
+└── LinkProviders — link preview card providers
+```
+
+## Other modules
+
+Modules in `src/modules/` that are auto-discovered alongside chat:
+
+| Module | Description |
+|--------|-------------|
+| `main_menu/` | The FFZ settings menu UI |
+| `tooltips.ts` | Tooltip system shared across the UI |
+| `metadata.tsx` | Stream metadata display (uptime, viewer count) |
+| `translation_ui/` | In-app translation interface |
+| `emote_card/` | Emote information card overlay |
+| `link_card/` | Link preview card overlay |
+| `viewer_cards/` | Viewer information card overlay |
+
+## Module discovery
+
+`discoverModules()` in `src/main.ts` uses webpack's `require.context` to scan `src/modules/`:
+
+```typescript
+const ctx = await require.context(
+    'src/modules',
+    true,
+    /(?:^(?:\.\/)? [^/]+|index)\.[jt]sx?$/
+);
+```
+
+This picks up the top-level file and any `index.[jt]sx?` from each subdirectory. The resulting modules are registered with `loadFromContext()`, which reads each module's exported class and metadata.
+
+## Utilities layer
+
+Shared utilities live in `src/utilities/` and are aliased as `utilities/*` for import. Key modules:
+
+| File | Purpose |
+|------|---------|
+| `module.ts` | Base `Module` class: dependency injection, lifecycle hooks, event bus |
+| `events.ts` | Typed event emitter |
+| `dom.ts` | DOM helpers, `ManagedStyle` for injected CSS |
+| `object.ts` | General-purpose helpers (`has`, `deep_copy`, `SourcedSet`, etc.) |
+| `logging.ts` | Hierarchical logger with captured init log |
+| `color.ts` | Color parsing and manipulation |
+| `graphql.ts` | GraphQL query helpers for Twitch API interception |
+| `filtering.ts` | Rule-based filtering engine used by chat filters |
+| `translation-core.ts` | Core ICU message format translation engine |
+| `tooltip.ts` | Tooltip positioning and rendering |
+| `dialog.ts` | Modal dialog management |
+| `addon.ts` | Add-on proxy utilities |
+| `extension_port.ts` | Message port bridge between content script and background worker |
+| `vue.ts` | Vue 2 instance management |
+| `types.ts` | Shared TypeScript type definitions |
+
+## UI frameworks
+
+| Framework | Version | Usage |
+|-----------|---------|-------|
+| Vue 2 | `^2.7.16` | Settings menu, tooltips, most overlay UI. Vue is loaded as a webpack external (`ffzVue`) to avoid bundling it multiple times. |
+| React | `^18.3.1` | Components that mount directly into Twitch's React component tree. JSX factory is set to `createElement` (from `utilities/dom`). |
+
+## Webpack compatibility layer
+
+FFZ intercepts Twitch's internal webpack module registry through the bridge entry points (`src/bridge.js`, `src/esbridge.js`). This allows FFZ to import Twitch's internal React components, GraphQL queries, and utility functions at runtime without bundling copies of them.

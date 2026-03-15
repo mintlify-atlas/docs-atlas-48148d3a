@@ -1,0 +1,120 @@
+---
+title: "Add-on overview"
+description: "Learn what FrankerFaceZ add-ons are, how they are loaded, and the lifecycle every add-on goes through."
+---
+
+Add-ons are independently distributed modules that extend FrankerFaceZ's functionality. They run inside FFZ's module system with full access to core APIs — settings, events, i18n, chat rendering, and more — without requiring changes to FFZ itself.
+
+## How add-ons differ from core modules
+
+Core modules ship with FFZ and are always present. Add-ons are optional: users enable them individually from the **Add-Ons** panel in the FFZ settings UI. Each add-on lives under the `addon.<id>` path in the module tree, keeping it isolated from core modules.
+
+Unlike core modules, add-ons:
+
+- Are loaded on demand from the FFZ add-ons CDN (or a local dev server).
+- Declare a manifest (`AddonInfo`) that drives the UI in the add-ons panel.
+- Can be enabled, disabled, and reloaded at runtime without reloading the page (when the add-on supports it).
+
+## The add-on ecosystem
+
+When FFZ starts, `AddonManager` fetches `addons.json` from the FFZ CDN. That file lists every published add-on and the URL of its compiled script. When a user enables an add-on, FFZ injects a `<script>` tag pointing at that URL. The script calls `Addon.register()` to insert itself into the module tree.
+
+During development you can run a local server on port `8001` and enable the **Use Local Development Server** setting (`addons.dev.server`). FFZ will prefer your local `addons.json` and script files over the CDN versions.
+
+## The `AddonInfo` manifest
+
+Every add-on has a manifest that describes it to FFZ and to the UI. The type is defined in `src/utilities/types.ts`.
+
+```typescript
+export type AddonInfo = {
+  // Identity
+  id: string;           // Unique slug, e.g. "my-addon"
+  version: string;      // Semantic version string
+
+  // Display
+  name: string;         // Human-readable name (English)
+  short_name?: string;  // Abbreviated name for compact displays
+  author: string;       // Author name
+  maintainer?: string;  // Maintainer name if different from author
+  description: string;  // Markdown-supported description
+  website?: string;     // URL shown as a "Website" button
+  settings?: string;    // Settings UI path key for a "Settings" button
+  search_terms?: string | null; // Extra search keywords
+
+  // Dates
+  created: Date;
+  updated?: Date;
+
+  // Runtime
+  dev: boolean;         // True when loaded from the dev server
+  external: boolean;    // True when loaded outside FFZ control
+  targets: string[];    // Flavors this add-on supports: "main", "clips", "player"
+  requires: string[];   // IDs of add-ons this add-on depends on
+  required_by: string[];// IDs of add-ons that depend on this one (populated at runtime)
+  load_events?: string[]; // Load tracker events to hold while loading
+};
+```
+
+<Note>
+The `dev` and `external` flags are set by `AddonManager` at runtime — you do not need to set them in your manifest object.
+</Note>
+
+### Manifest field reference
+
+<AccordionGroup>
+  <Accordion title="id">
+    The unique identifier for your add-on. Used as the module path (`addon.<id>`), as the prefix for settings keys, and throughout the FFZ UI. Must be lowercase and URL-safe.
+  </Accordion>
+  <Accordion title="version">
+    A semantic version string (`MAJOR.MINOR.PATCH`). Displayed in the add-ons panel and available to other add-ons via `AddonManager.getVersion(id)`.
+  </Accordion>
+  <Accordion title="settings">
+    A settings UI path key. When set, a **Settings** button appears next to your add-on in the panel and takes the user directly to that section.
+  </Accordion>
+  <Accordion title="targets">
+    An array of FFZ flavor strings. Use `["main"]` for the standard Twitch page, `["clips"]` for clip pages, and `["player"]` for the standalone player. An add-on is only loaded on flavors listed here.
+  </Accordion>
+  <Accordion title="requires">
+    IDs of other add-ons that must be enabled before this add-on can be enabled. `AddonManager.enableAddon()` automatically enables required add-ons first.
+  </Accordion>
+  <Accordion title="load_events">
+    Load tracker event keys that FFZ will hold open while your add-on loads. This delays certain FFZ initialisation steps until your add-on has finished loading, ensuring your add-on's data is ready when it is needed.
+  </Accordion>
+</AccordionGroup>
+
+## The add-on lifecycle
+
+```
+registered → loaded → enabled
+```
+
+<Steps>
+  <Step title="Registered">
+    Your script is injected and calls `Addon.register()`. FFZ creates a module instance at `addon.<id>` and emits `:registered`. The module is now known to the system but not yet active.
+  </Step>
+  <Step title="Loaded">
+    If your class defines `load_requires` or an `onLoad()` method, FFZ loads your module (and its load dependencies) before enabling it. Once loading completes, the module transitions to `LoadState.Loaded`.
+  </Step>
+  <Step title="Enabled">
+    `AddonManager` calls `module.enable()`. FFZ resolves all `requires` dependencies, runs `onEnable()`, and transitions the module to `State.Enabled`. Your add-on is now fully active.
+  </Step>
+</Steps>
+
+The inverse path — `onDisable()` then `onUnload()` — is followed when the user disables the add-on or a reload is triggered.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/addons/quickstart">
+    Build a minimal working add-on in minutes.
+  </Card>
+  <Card title="Add-on structure" icon="folder" href="/addons/structure">
+    Understand how to organise multi-module add-ons.
+  </Card>
+  <Card title="Module API" icon="cube" href="/addons/module">
+    Full reference for the Module class.
+  </Card>
+  <Card title="Addon class" icon="puzzle-piece" href="/addons/addon-class">
+    What Addon adds on top of Module.
+  </Card>
+</CardGroup>

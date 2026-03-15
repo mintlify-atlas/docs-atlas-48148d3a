@@ -1,0 +1,145 @@
+---
+title: "Building"
+description: "All build scripts, environment variables, and output configuration for FrankerFaceZ."
+keywords: ["build", "webpack", "pnpm", "scripts", "extension", "typedoc"]
+---
+
+## Build scripts
+
+All scripts are run with `pnpm <script>`.
+
+### Development server
+
+<CodeGroup>
+
+```bash start dev server
+pnpm dev
+```
+
+```bash alias
+pnpm start
+```
+
+</CodeGroup>
+
+Starts `webpack-dev-server` with `NODE_ENV=development`. Webpack watches source files and rebuilds on change. Files are served from `https://localhost:8000/script/`.
+
+### Production build
+
+```bash
+pnpm build
+```
+
+Alias for `pnpm build:prod`. Runs a full production build with minification and content-hashed filenames.
+
+### All build variants
+
+| Script | Description |
+|--------|-------------|
+| `pnpm build:prod` | Production build (`NODE_ENV=production`) |
+| `pnpm build:dev` | Development build without minification |
+| `pnpm build:ext` | Browser extension build (`FFZ_EXTENSION=true`, production) |
+| `pnpm build:types` | Emit TypeScript declaration files to `typedist/` |
+| `pnpm build:docs` | Generate TypeDoc API documentation |
+| `pnpm build:stats` | Production build that writes Webpack stats to `stats.json` |
+
+### Cleaning
+
+```bash
+pnpm clean
+```
+
+Deletes the `dist/` output directory using `rimraf`.
+
+### Linting
+
+```bash
+pnpm eslint
+```
+
+Runs ESLint across all `.js`, `.jsx`, and `.vue` files under `src/`.
+
+### Font management
+
+FFZ ships a custom icon font managed through [Fontello](https://fontello.com/). The following scripts handle the font workflow:
+
+| Script | Description |
+|--------|-------------|
+| `pnpm font` | Alias for `pnpm font:edit` |
+| `pnpm font:edit` | Opens (or creates) a Fontello editing session in your browser |
+| `pnpm font:save` | Downloads changes from Fontello and runs `font:update` |
+| `pnpm font:update` | Processes downloaded Fontello files into the project |
+
+<Tip>
+  If the dev server is running (`pnpm dev`), clicking Fontello's **Export** button automatically saves changes to the project. Without the dev server, use `pnpm font:save` manually.
+</Tip>
+
+## Environment variables
+
+| Variable | Values | Effect |
+|----------|--------|--------|
+| `NODE_ENV` | `development` \| `production` | Controls minification and source maps. Defaults to `production` if unset. |
+| `FFZ_EXTENSION` | any truthy string | Switches the build to browser extension mode. Changes entry point to `entry_ext.js` and sets public path to `auto`. |
+| `FFZ_BUILD` | string | Optional build identifier embedded in the version string. |
+| `CLIENT_COMMIT` | git SHA | Overrides the auto-detected git commit hash embedded in builds. |
+
+## Output directory
+
+All build artifacts are written to `dist/`. In production builds, JavaScript chunks use content-hashed filenames (e.g., `avalon.3f2a1b4c.js`). In development builds and extension builds, filenames have no hash.
+
+The CDN public path for production builds is `https://cdn2.frankerfacez.com/static/`. Development server builds use `https://localhost:8000/script/`.
+
+## Webpack configuration overview
+
+The build is configured in `webpack.config.js` and uses the following notable plugins and loaders:
+
+| Tool | Purpose |
+|------|---------|
+| `esbuild-loader` | Transpiles JS/TS/JSX to ES2020 and minifies in production |
+| `vue-loader` | Processes Vue 2 single-file components (`.vue`) |
+| `sass-loader` | Compiles SCSS stylesheets |
+| `copy-webpack-plugin` | Copies the entry script (`entry.js` or `entry_ext.js`) to `dist/` |
+| `webpack-manifest-plugin` | Emits a `manifest.json` mapping logical names to hashed filenames |
+| `@cyclonedx/webpack-plugin` | Generates a CycloneDX software bill of materials (SBOM) |
+
+### Entry points
+
+| Name | File | Description |
+|------|------|-------------|
+| `avalon` | `src/main.ts` | Main FFZ client |
+| `bridge` | `src/bridge.js` | Webpack compatibility bridge for Twitch module interception |
+| `esbridge` | `src/esbridge.js` | ES module bridge |
+| `player` | `src/player.js` | Standalone player module |
+| `clips` | `src/clips.js` | Clips site module |
+| `worker` | `src/worker.ts` | Service worker (extension builds only) |
+
+### Module resolution aliases
+
+Webpack (and TypeScript) resolve the following path aliases:
+
+```text
+utilities/*  →  src/utilities/*
+site         →  src/sites/twitch-twilight/index.js
+site/*       →  src/sites/twitch-twilight/*
+src/*        →  src/*
+res/*        →  res/*
+styles/*     →  styles/*
+```
+
+## TypeScript configuration
+
+The TypeScript config (`tsconfig.json`) targets ES2020 and enables strict mode. Key settings:
+
+- `target`: ES2020
+- `module`: ES2020
+- `strict`: true (includes `strictNullChecks`, `noImplicitAny`, etc.)
+- `jsxFactory`: `createElement` (custom JSX factory)
+- `allowJs`: true
+
+## TypeDoc API documentation
+
+```bash
+pnpm build:docs
+```
+
+Generates API reference documentation using [TypeDoc](https://typedoc.org/) with the configuration in `typedoc.json`. The output can be used as a reference for add-on authors.

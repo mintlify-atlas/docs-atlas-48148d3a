@@ -1,0 +1,222 @@
+---
+title: "Events"
+description: "How FrankerFaceZ's EventEmitter works: typed event maps, on/off/emit, the Detach and StopPropagation symbols, and namespaced event paths."
+---
+
+FFZ uses a custom `EventEmitter` implementation (`src/utilities/events.ts`) instead of the browser's `EventTarget`. It is designed for the module system: all modules in the same tree share a single event listener registry, so listening and emitting events works across the entire module tree through fully-qualified event paths.
+
+## EventEmitter
+
+The base `EventEmitter` class provides `on`, `once`, `many`, `off`, `emit`, and `waitFor`. `Module` extends `HierarchicalEventEmitter`, which in turn extends `EventEmitter`, adding path-based namespacing.
+
+```typescript
+import EventEmitter from 'utilities/events';
+
+const emitter = new EventEmitter<MyEventMap>();
+emitter.on('my-event', (value: string) => console.log(value));
+emitter.emit('my-event', 'hello');
+```
+
+## Typed event maps
+
+Pass an `EventMap` type parameter to get compile-time safety on event names and argument types.
+
+```typescript
+import type { EventMap } from 'utilities/events';
+
+type MyEvents = {
+  ':data-loaded': [data: MyData];
+  ':error': [error: Error];
+  ':count-changed': [count: number, prev: number];
+};
+
+class MyModule extends Module<'my_module', MyEvents> {
+  // on/emit/off are now typed against MyEvents
+}
+```
+
+Event keys starting with `:` are relative — they are resolved relative to the module's path. For example, `:data-loaded` on a module at path `addon.my_addon` becomes `addon.my_addon:data-loaded` when stored in the shared listener registry.
+
+## on(), once(), many()
+
+```typescript
+// Listen indefinitely
+this.on(':data-loaded', (data) => this.handleData(data), this);
+
+// Listen exactly once
+this.once(':data-loaded', (data) => this.handleData(data), this);
+
+// Listen for up to N occurrences
+this.many(':data-loaded', 3, (data) => this.handleData(data), this);
+```
+
+All three accept an optional `priority` number (default `0`). Lower numbers run first. The `prepend` boolean parameter (last argument) inserts the listener before others at the same priority.
+
+## off()
+
+Remove listeners by event, function, context, or any combination:
+
+```typescript
+// Remove a specific listener
+this.off(':data-loaded', this.handleData, this);
+
+// Remove all listeners on an event registered by this context
+this.off(':data-loaded', undefined, this);
+
+// Remove all listeners for an event entirely
+this.off(':data-loaded');
+```
+
+## emit()
+
+```typescript
+this.emit(':data-loaded', myData);
+this.emit(':count-changed', newCount, prevCount);
+```
+
+Listeners are called synchronously in priority order. Errors thrown by a listener are caught, logged, and do not halt the remaining listeners.
+
+## waitFor()
+
+Returns a `Promise` that resolves with the first emission of the event:
+
+```typescript
+const [data] = await this.waitFor(':data-loaded');
+```
+
+## Special return values
+
+### Detach
+
+Returning the `Detach` symbol from an event listener automatically removes that listener after it fires:
+
+```typescript
+import { Detach } from 'utilities/events';
+
+this.on(':data-loaded', (data) => {
+  if (data.isTerminal) {
+    this.finalize(data);
+    return Detach; // listener is automatically removed
+  }
+  this.processChunk(data);
+});
+```
+
+### StopPropagation
+
+Returning the `StopPropagation` symbol from a listener prevents any remaining listeners from receiving the event:
+
+```typescript
+import { StopPropagation } from 'utilities/events';
+
+this.on(':incoming-message', (msg) => {
+  if (this.shouldBlock(msg)) {
+    return StopPropagation;
+  }
+}, this, -100); // low priority number = runs first
+```
+
+## FFZEvent and FFZWaitableEvent
+
+For events where the emitter wants feedback from listeners, use the `FFZEvent` and `FFZWaitableEvent` wrappers.
+
+### FFZEvent
+
+Passes a mutable event object instead of positional arguments. Listeners can call `stopPropagation()` or `preventDefault()` on it:
+
+```typescript
+import { FFZEvent } from 'utilities/events';
+
+type RenderEventData = { message: Message; tokens: Token[] };
+
+// Emitting
+const evt = this.makeEvent<RenderEventData>({ message, tokens });
+this.emit(':render-message', evt);
+
+if (evt.defaultPrevented) {
+  // a listener cancelled default rendering
+}
+
+// Listening
+this.on(':render-message', (evt) => {
+  evt.tokens.push(myExtraToken);
+});
+```
+
+### FFZWaitableEvent
+
+Extends `FFZEvent` with support for async listeners. Listeners can return a `Promise` or call `evt.waitFor(promise)`. The emitter awaits all registered promises with `evt._wait()`:
+
+```typescript
+import { FFZWaitableEvent } from 'utilities/events';
+
+const evt = this.makeWaitableEvent<{ id: string }, Result>({ id: '123' });
+this.emit(':process-item', evt);
+const results = await evt._wait();
+```
+
+```typescript
+// Async listener
+this.on(':process-item', async (evt) => {
+  const result = await doAsyncWork(evt.id);
+  return result; // or: evt.waitFor(promise)
+});
+```
+
+## Namespaced event paths
+
+All modules share a single flat event registry rooted at the `FrankerFaceZ` instance. Event keys are absolute paths:
+
+```
+chat.emotes:update-default-sets
+```
+
+When you call `this.emit(':update-default-sets')` from inside the `chat.emotes` module, the system prepends the module's path automatically, producing `chat.emotes:update-default-sets`.
+
+Other modules can listen to events from anywhere in the tree using absolute paths:
+
+```typescript
+// Listen to an event on a sibling module
+this.on('chat.emotes:update-default-sets', this.rebuild, this);
+```
+
+You can also use relative path syntax with leading periods:
+
+```typescript
+// From a module at 'addon.my_addon.sub_module'
+// '.' means current module, '..' means parent
+this.on('..:some-event', handler, this); // listens to 'addon.my_addon:some-event'
+```
+
+### KnownEvents
+
+The `KnownEvents` type in `src/utilities/types.ts` collects all typed events from `ModuleEventMap` into a single intersection type, giving you type hints across module boundaries:
+
+```typescript
+// src/utilities/types.ts
+export type KnownEvents = UnionToIntersection<{
+  [K in keyof ModuleEventMap]: NamespacedEvents<K, ModuleEventMap[K]>
+}[keyof ModuleEventMap]>;
+```
+
+Add your module's events to `ModuleEventMap` to make them available to all other modules:
+
+```typescript
+declare module 'utilities/types' {
+  interface ModuleEventMap {
+    'my_module': MyModuleEvents;
+  }
+}
+```
+
+## transferListeners()
+
+When replacing a module instance, transfer all existing listeners to the new instance:
+
+```typescript
+oldInstance.transferListeners(newInstance);
+```
+
+<Warning>
+  `HierarchicalEventEmitter` instances (i.e., all `Module`s) cannot transfer listeners to an emitter outside their tree. Attempting to do so throws an error. This method is primarily used internally by `SettingsProfile` and profile reloading.
+</Warning>

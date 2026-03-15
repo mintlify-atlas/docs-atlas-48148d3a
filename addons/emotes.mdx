@@ -1,0 +1,170 @@
+---
+title: "Emotes API"
+description: "How FrankerFaceZ manages emote sets, modifier flags, and custom emote providers. Learn how to add custom emotes from an add-on."
+---
+
+The `Emotes` module (`src/modules/chat/emotes.js`) manages all emote sets available in FFZ — including FFZ's own global and channel emotes, Twitch emotes, and emotes injected by add-ons.
+
+## Emote modifier flags
+
+FFZ supports a rich set of **modifier flags** that apply visual effects to emotes. These are defined using `make_enum_flags` and exported as `MODIFIER_FLAGS`:
+
+```javascript
+// From src/modules/chat/emotes.js
+import { make_enum_flags } from 'utilities/object';
+
+const Flags = make_enum_flags(
+  'Hidden',
+  'FlipX',
+  'FlipY',
+  'GrowX',
+  'Slide',
+  'Appear',
+  'Leave',
+  'Rotate',
+  'Rotate90',
+  'Greyscale',
+  'Sepia',
+  'Rainbow',
+  'HyperRed',
+  'Shake',
+  'Cursed',
+  'Jam',
+  'Bounce',
+  'NoSpace'
+);
+
+export const MODIFIER_FLAGS = Flags;
+export const MODIFIER_KEYS = Object.values(MODIFIER_FLAGS).filter(x => typeof x === 'number');
+```
+
+### Flag descriptions
+
+| Flag | Description |
+|------|-------------|
+| `Hidden` | Hides the emote (used for modifier-only emotes) |
+| `FlipX` | Flips the emote horizontally |
+| `FlipY` | Flips the emote vertically |
+| `GrowX` | Stretches the emote horizontally |
+| `Slide` | Slides the emote across the screen |
+| `Appear` | Plays an appear animation |
+| `Leave` | Plays a leave animation |
+| `Rotate` | Continuously rotates the emote |
+| `Rotate90` | Rotates the emote 90 degrees |
+| `Greyscale` | Renders the emote in greyscale |
+| `Sepia` | Applies a sepia tone filter |
+| `Rainbow` | Applies a rainbow color cycling effect |
+| `HyperRed` | Applies a red color effect |
+| `Shake` | Makes the emote shake |
+| `Cursed` | Applies a "cursed" distortion effect |
+| `Jam` | Applies a jamming/bouncing animation |
+| `Bounce` | Makes the emote bounce |
+| `NoSpace` | Removes spacing around the emote |
+
+## EmoteTypes
+
+Emote types are defined as constants in `utilities/constants`:
+
+```javascript
+import { EmoteTypes, TWITCH_GLOBAL_SETS, TWITCH_POINTS_SETS, TWITCH_PRIME_SETS } from 'utilities/constants';
+```
+
+These constants identify the origin and display type of emotes (Twitch global, Twitch subscriber, FFZ, etc.).
+
+## Emote set structure
+
+An emote set is an object with the following shape:
+
+```javascript
+{
+  id: 12345,           // Numeric ID
+  title: 'My Set',    // Display name
+  source: 'My Addon', // Source label shown in emote picker
+  icon: 'https://...', // Optional icon URL
+  emotes: {
+    'emote-name': {
+      id: 67890,
+      name: 'emote-name',
+      urls: {
+        1: 'https://cdn.example.com/emote/1x.png',
+        2: 'https://cdn.example.com/emote/2x.png',
+        4: 'https://cdn.example.com/emote/4x.png'
+      },
+      width: 28,
+      height: 28,
+      modifier: false,
+      modifier_flags: 0
+    }
+  }
+}
+```
+
+## Accessing the Emotes module
+
+From an add-on, access the Emotes module by injecting it or resolving it:
+
+```javascript
+import { Addon } from 'utilities/addon';
+
+export default class MyAddon extends Addon {
+  constructor(name, parent) {
+    super(name, parent);
+    this.inject('chat');
+  }
+
+  async onEnable() {
+    const emotes = this.resolve('chat.emotes');
+    // Now you can work with the emotes module
+  }
+}
+```
+
+## Adding custom emote sets
+
+To add a custom emote set, use the Emotes module's set management API. The `SourcedSet` pattern is used so multiple add-ons can contribute to the same set collection without conflict:
+
+```javascript
+async onEnable() {
+  const emotes = this.resolve('chat.emotes');
+
+  // Add a global emote set
+  emotes.addDefaultSet('my-addon', 'my-global-set-id');
+
+  // Register the emote set data
+  emotes.loadSet({
+    id: 'my-global-set-id',
+    title: 'My Addon Emotes',
+    source: 'My Addon',
+    emotes: {
+      'MyEmote': {
+        id: 1,
+        name: 'MyEmote',
+        urls: {
+          1: 'https://example.com/emotes/myemote/1x.png',
+          2: 'https://example.com/emotes/myemote/2x.png'
+        },
+        width: 28,
+        height: 28
+      }
+    }
+  });
+}
+```
+
+<Note>
+  When your add-on is disabled, make sure to call `emotes.removeDefaultSet('my-addon', 'my-global-set-id')` to clean up.
+</Note>
+
+## Modifier emotes
+
+Modifier emotes are special emotes that, when placed adjacent to another emote, apply a visual effect. Set `modifier: true` on the emote definition and set `modifier_flags` to a bitmask of `MODIFIER_FLAGS` values:
+
+```javascript
+{
+  name: 'rainbow',
+  modifier: true,
+  modifier_flags: MODIFIER_FLAGS.Rainbow,
+  urls: { 1: 'https://...' },
+  hidden: true  // Don't show standalone in emote picker
+}
+```

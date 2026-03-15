@@ -1,97 +1,87 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "FrankerFaceZ"
+description: "The Twitch Enhancement Suite — custom emotes, badges, chat filtering, and a powerful add-on framework for extending Twitch."
 ---
 
-## Setting up
-
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get FrankerFaceZ running on Twitch and start customizing your experience in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Build an Add-on" icon="puzzle-piece" href="/addons/quickstart">
+    Extend FFZ with custom features using the add-on framework and Module API.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Concepts" icon="book-open" href="/concepts/module-system">
+    Understand the module system, settings, events, and i18n that power FFZ.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Contributing" icon="code-branch" href="/contributing/setup">
+    Set up a local dev environment and contribute to FrankerFaceZ.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What is FrankerFaceZ?
 
-Everything you need to create world-class documentation.
+FrankerFaceZ (FFZ) is a browser extension and userscript that enhances Twitch with features the platform doesn't provide. It has been actively maintained since Twitch's React rewrite in 2017 and is used by hundreds of thousands of viewers and streamers.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="Custom Emotes" icon="face-smile">
+    Channel and global emotes from the FFZ emote library, with support for emote modifiers, animations, and custom sizing.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Custom Badges" icon="certificate">
+    FFZ supporter badges, channel-specific badges, and full badge rendering customization.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Chat Filtering" icon="filter">
+    Advanced keyword highlighting, user blocking, and regex-based filtering with profile-based contexts.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Add-on System" icon="puzzle-piece">
+    A modular plugin framework that lets developers build and distribute new features as add-ons.
   </Card>
-</Columns>
+  <Card title="Settings Profiles" icon="sliders">
+    Context-aware settings that can change based on channel, category, or other conditions.
+  </Card>
+  <Card title="Real-time Updates" icon="bolt">
+    Live socket connection to FFZ servers for instant emote, badge, and configuration updates.
+  </Card>
+</CardGroup>
 
-## Need inspiration?
+## How FFZ works
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+FrankerFaceZ loads as a browser extension or userscript on Twitch. It intercepts and augments Twitch's React application by patching components through a webpack module compatibility layer, then injects its own module tree on top.
+
+```
+Twitch Page Load
+      │
+      ▼
+  FFZ Entry Point (entry.js / entry_ext.js)
+      │
+      ▼
+  FrankerFaceZ Core (main.ts)
+      │
+      ├── SettingsManager
+      ├── AddonManager
+      ├── TranslationManager (i18n)
+      ├── SocketClient
+      ├── PubSubClient
+      └── Site Module (twitch-twilight)
+              │
+              ├── Chat Module
+              │     ├── Emotes
+              │     ├── Badges
+              │     ├── Tokenizers
+              │     └── Actions
+              └── Other Site Modules
+```
+
+<Note>
+  FrankerFaceZ uses a debug mode during development. Set `localStorage.ffzDebugMode = true` in your browser console on Twitch to load from a local development server.
+</Note>
+
+## Supported environments
+
+<CardGroup cols={2}>
+  <Card title="Browser Extension" icon="puzzle-piece">
+    Available for Chrome, Firefox, and other Chromium-based browsers through the official FFZ extension repository.
+  </Card>
+  <Card title="Userscript" icon="file-code">
+    Load FFZ as a userscript via Tampermonkey or similar managers — recommended for development.
+  </Card>
+</CardGroup>

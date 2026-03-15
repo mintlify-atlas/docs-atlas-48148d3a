@@ -1,0 +1,259 @@
+---
+title: "Events API"
+description: "Subscribe to, emit, and manage events across modules using FrankerFaceZ's hierarchical event system."
+---
+
+FFZ modules use a shared hierarchical event emitter. All modules in the same tree share a single pool of event listeners, so any module can listen to events from any other module using its full path.
+
+`Module` inherits from `HierarchicalEventEmitter` (from `utilities/events`). You call event methods directly on `this`.
+
+## Event key syntax
+
+Event keys combine a module path with an event name, separated by a colon:
+
+```
+chat.emotes:update-default-sets
+│           │
+│           └─ event name
+└─ module path
+```
+
+### Relative keys
+
+Within a module, keys starting with `:` are automatically resolved to the module's own path:
+
+```typescript
+// Inside a module at path 'addon.my-addon':
+this.emit(':data-ready');  // emits 'addon.my-addon:data-ready'
+this.on(':data-ready', handler); // listens on 'addon.my-addon:data-ready'
+```
+
+### Absolute keys
+
+To listen to events from another module, use the full path:
+
+```typescript
+this.on('chat:receive-message', handler);
+this.on('settings:changed:my-addon.show-badges', handler);
+```
+
+## `this.on(event, fn, ctx?, priority?, prepend?)`
+
+Registers a persistent event listener.
+
+```typescript
+on<K extends NamespacedEventKey<TNamespace, TActualEvents>>(
+  event: K,
+  fn: EventListener<NamespacedEventArgs<K, TNamespace, TActualEvents>>,
+  ctx?: any,
+  priority?: number,
+  prepend?: boolean
+): this
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `event` | — | Event key (relative or absolute). |
+| `fn` | — | Listener function. |
+| `ctx` | `this` | Context (`this`) when calling `fn`. When called on a `Module`, defaults to the module itself. |
+| `priority` | `0` | Listeners with lower priority values run first. |
+| `prepend` | `false` | Add to the front of the list at the same priority. |
+
+```typescript
+async onEnable() {
+  this.on('chat:receive-message', this.handleMessage, this);
+}
+
+private handleMessage(msg: any) {
+  // ...
+}
+```
+
+## `this.once(event, fn, ctx?, priority?, prepend?)`
+
+Like `on()`, but the listener is automatically removed after it fires once.
+
+```typescript
+this.once('addon.my-addon:data-ready', (count: number) => {
+  this.log.info(`Data ready, count = ${count}`);
+});
+```
+
+Internally this calls `this.many(event, 1, fn, ...)`. 
+
+## `this.many(event, ttl, fn, ctx?, priority?, prepend?)`
+
+Like `on()`, but the listener is automatically removed after `ttl` invocations.
+
+```typescript
+// Fire at most 3 times:
+this.many('chat:receive-message', 3, msg => {
+  this.log.info('First three messages:', msg);
+});
+```
+
+## `this.waitFor(event, ctx?, priority?, prepend?)`
+
+Returns a `Promise` that resolves with the arguments of the next time the event fires. Internally registers a one-shot listener.
+
+```typescript
+const [count] = await this.waitFor('addon.my-addon:data-ready');
+this.log.info(`Data ready with ${count} items.`);
+```
+
+## `this.off(event?, fn?, ctx?)`
+
+Removes matching event listeners. You must provide at least one of `event`, `fn`, or `ctx`.
+
+```typescript
+// Remove a specific listener:
+this.off('chat:receive-message', this.handleMessage, this);
+
+// Remove all listeners for an event:
+this.off('chat:receive-message');
+
+// Remove all listeners registered with a specific context:
+this.off(undefined, undefined, someContext);
+```
+
+<Warning>
+Calling `this.off()` with no arguments throws an error. You must supply at least one constraint.
+</Warning>
+
+## `this.emit(event, ...args)`
+
+Fires an event, calling all registered listeners in priority order.
+
+```typescript
+emit<K extends NamespacedEventKey<TNamespace, TActualEvents>>(
+  event: K,
+  ...data: NamespacedEventArgs<K, TNamespace, TActualEvents>
+): void
+```
+
+```typescript
+this.emit(':data-ready', 42);
+this.emit(':status-changed', 'active', 'idle');
+```
+
+<Note>
+Emitting an event while it is already running throws a `concurrent access` error. Do not emit an event from within its own listener.
+</Note>
+
+## Special return values
+
+Listeners can return special symbols to control behaviour:
+
+### `Detach`
+
+Import from `utilities/events`. When a listener returns `Detach`, it is automatically removed and will not receive future events.
+
+```typescript
+import { Detach } from 'utilities/events';
+
+this.on('chat:receive-message', msg => {
+  if (this.isDone()) {
+    return Detach; // remove this listener
+  }
+  this.process(msg);
+});
+```
+
+### `StopPropagation`
+
+Import from `utilities/events`. When a listener returns `StopPropagation`, no further listeners for that event invocation are called.
+
+```typescript
+import { StopPropagation } from 'utilities/events';
+
+this.on('chat:receive-message', msg => {
+  if (this.shouldBlock(msg)) {
+    return StopPropagation; // prevent other listeners
+  }
+});
+```
+
+## Typed events with `ModuleEventMap`
+
+To get compile-time type checking on your module's own events, augment `ModuleEventMap` and pass your event map as a type parameter to `Addon` or `Module`.
+
+```typescript
+// 1. Augment the global map in utilities/types:
+declare module 'utilities/types' {
+  interface ModuleEventMap {
+    'my-addon': MyAddonEvents;
+  }
+}
+
+// 2. Define your events:
+type MyAddonEvents = {
+  ':data-ready': [count: number];
+  ':status-changed': [newStatus: string, oldStatus: string];
+};
+
+// 3. Pass the map to your class:
+export default class MyAddon extends Addon<'addon.my-addon', MyAddonEvents> {
+  async onEnable() {
+    this.emit(':data-ready', 42);           // typed: number required
+    this.emit(':status-changed', 'on', 'off'); // typed: two strings required
+  }
+}
+```
+
+Other modules can then listen with full type safety:
+
+```typescript
+this.on('addon.my-addon:data-ready', (count: number) => {
+  // count is typed
+});
+```
+
+## Listening across modules
+
+Because all modules in the tree share the same listener pool, any module can subscribe to any other module's events by using its full absolute path:
+
+```typescript
+// From inside any module, listen to chat events:
+this.on('chat:receive-message', this.onMessage, this);
+
+// Listen to a core settings change:
+this.on('settings:changed:my-addon.show-badges', this.onSettingChange, this);
+
+// Listen to another add-on's custom event:
+this.on('addon.other-addon:some-event', this.onOtherAddonEvent, this);
+```
+
+<Tip>
+Listeners registered with `this.on()` automatically use the current module as context. When `AddonManager` fully unloads a module, it removes all listeners whose context matches that module, so you rarely need to manually call `off()`.
+</Tip>
+
+## FFZEvent and FFZWaitableEvent
+
+For more complex event patterns where you need feedback from listeners, use the structured event classes:
+
+```typescript
+import { FFZEvent, FFZWaitableEvent } from 'utilities/events';
+
+// Create a structured event:
+const evt = FFZEvent.makeEvent({
+  message: 'hello',
+  channel: 'some_channel'
+});
+
+this.emit(':process-message', evt);
+
+// Listeners can call evt.preventDefault() or evt.stopPropagation().
+if (evt.defaultPrevented) {
+  return; // a listener cancelled the default action
+}
+```
+
+`FFZWaitableEvent` additionally supports listeners returning `Promise`s:
+
+```typescript
+const waitable = FFZWaitableEvent.makeEvent({ id: 'token-123' });
+this.emit(':process-token', waitable);
+
+// Wait for all async listeners to finish:
+const results = await waitable._wait();
+```

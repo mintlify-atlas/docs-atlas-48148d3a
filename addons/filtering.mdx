@@ -1,0 +1,338 @@
+---
+title: 'Filtering system'
+description: 'Full documentation for the FFZ filter system: FilterType, FilterData, createTester, and how to define custom filter types in an add-on.'
+keywords: ['filtering', 'FilterType', 'createTester', 'FilterData', 'chat', 'rules']
+---
+
+The FFZ filtering system provides a composable, context-based rule engine used throughout the add-on ecosystem — most prominently for chat keyword highlighting, user blocking, and badge-based filtering. You can define entirely new filter types in your own add-on and plug them into the same engine.
+
+All exports are available via:
+
+```typescript
+const { createTester } = FrankerFaceZ.utilities.filtering;
+```
+
+---
+
+## Core types
+
+### `FilterType<TConfig, TContext>`
+
+A `FilterType` describes how a single kind of filter rule should be built and evaluated. Every rule type you want to support — whether it ships with FFZ or lives in your add-on — must implement this interface.
+
+```typescript
+export type FilterType<TConfig, TContext> = {
+    /**
+     * Build a test function from the stored rule configuration.
+     * Return null/undefined to skip this rule entirely.
+     */
+    createTest(
+        config: TConfig,
+        filter_types: Record<string, FilterType<any, TContext>>,
+        rebuild?: () => void
+    ): ((ctx: TContext) => boolean) | null | undefined;
+
+    /** Default configuration value for this rule type. */
+    default: TConfig | (() => TConfig);
+
+    // ---- Editor configuration ----
+
+    /** Editor component or factory function returning one. */
+    editor?: any | (() => any | Promise<any>);
+
+    /** Display title for this filter type. */
+    title: string;
+
+    /** i18n key for the title. */
+    i18n?: string | null;
+
+    /** If true, the editor for this type is taller than a single line. */
+    tall?: boolean;
+
+    /** Maximum number of rules of this type allowed. */
+    maxRules?: number;
+
+    /** Whether this type can contain child rules. */
+    childRules?: boolean;
+};
+```
+
+#### `createTest(config, filter_types, rebuild?)`
+
+This is the only required method that does real work. It receives:
+
+- `config` — the stored configuration object for this rule instance (matches `TConfig`).
+- `filter_types` — the complete map of all registered filter types in this context, allowing compound types (such as AND / OR groups) to recursively build testers for their children.
+- `rebuild` — an optional callback. Call it if the test function must be regenerated — for example, when an asynchronous resource finishes loading. The filter engine will then re-invoke `createTester` for the entire rule set.
+
+Return `null` or `undefined` to signal that this rule produces no test (it will be silently skipped by `createTester`).
+
+#### `default`
+
+The default configuration value for new rules of this type. May be a plain value or a zero-argument factory function.
+
+#### Editor fields
+
+| Field | Description |
+|-------|-------------|
+| `editor` | A Vue component (or factory returning one, possibly async) used to render the configuration UI for this type |
+| `title` | Human-readable name shown in the UI |
+| `i18n` | i18n translation key for `title` |
+| `tall` | Hints to the UI that this editor is taller than one line |
+| `maxRules` | If set, limits how many rules of this type a rule list can contain |
+| `childRules` | If `true`, this type embeds a sub-list of child rules |
+
+---
+
+### `FilterData`
+
+A serialized rule instance as it is stored in settings.
+
+```typescript
+export type FilterData = {
+    id?: string;   // optional stable identifier for the rule
+    type: string;  // key into the filter_types map
+    data: any;     // the TConfig value for this rule
+};
+```
+
+---
+
+### `createTester`
+
+Compiles a list of `FilterData` rules into a single test function.
+
+```typescript
+function createTester<TContext, Types extends FilterTypeMap<TContext>>(
+    rules: FilterData[] | null | undefined,
+    filter_types: Types,
+    inverted?: boolean,  // default false — negate the entire result
+    or?: boolean,        // default false — AND rules; true = OR rules
+    rebuild?: () => void
+): (ctx: TContext) => boolean;
+```
+
+**Behaviour:**
+
+- If `rules` is empty or `null`, returns `() => true` (or `() => false` when `inverted`).
+- Rules whose `type` is not found in `filter_types` default to `() => false` to avoid silently passing.
+- Individual rules for which `createTest` returns `null` / `undefined` are skipped.
+- When exactly one rule remains after filtering, the test function is returned directly with no wrapper overhead.
+- When multiple rules remain, a new `Function` is constructed that evaluates them all with `&&` (default) or `||` (when `or = true`), making the hot path as fast as a hand-written boolean chain.
+
+```typescript
+const { createTester } = FrankerFaceZ.utilities.filtering;
+
+type ChatContext = {
+    login: string;
+    message: string;
+    badges: Record<string, string>;
+};
+
+const tester = createTester<ChatContext>(
+    settings.get('__filter:block-users'),
+    filter_types
+);
+
+// In the message handler:
+if (tester(ctx)) {
+    // the message matched all active block rules
+}
+```
+
+---
+
+## How FFZ uses the filter system internally
+
+FFZ's chat module maintains several filter sets stored as settings keys prefixed with `__filter:`:
+
+| Setting key | Purpose |
+|-------------|----------|
+| `__filter:highlight-terms` | Keyword highlight rules |
+| `__filter:highlight-users` | User highlight rules |
+| `__filter:highlight-badges` | Badge-based highlight rules |
+| `__filter:block-terms` | Keyword block rules |
+| `__filter:block-users` | User block rules |
+| `__filter:block-badges` | Badge-based block rules |
+
+Each of these settings stores an array of `FilterData` objects. When a chat message arrives, FFZ builds a context object and runs it through each relevant tester. When any of these settings change, `UPDATE_TOKEN_SETTINGS` triggers a re-render of all visible chat messages.
+
+---
+
+## Adding custom filter types in an add-on
+
+The following example adds a filter type that matches messages containing a specific emote code.
+
+<Steps>
+
+<Step title="Define the context type">
+
+Decide what information will be available when the tester runs. This type should be identical to the context type used by the filter set you are contributing to.
+
+```typescript
+type ChatContext = {
+    login: string;
+    message: string;
+    badges: Record<string, string>;
+};
+```
+
+</Step>
+
+<Step title="Implement the FilterType">
+
+Create an object that satisfies `FilterType<TConfig, TContext>`.
+
+```typescript
+const { FilterType } = FrankerFaceZ.utilities.filtering; // type only
+
+type EmoteConfig = {
+    code: string;
+};
+
+const EmoteFilterType = {
+    title: 'Message Contains Emote',
+    i18n: 'my-addon.filter.emote',
+
+    default: () => ({ code: '' }),
+
+    createTest(config: EmoteConfig) {
+        const { code } = config;
+        if (!code) return null; // nothing to test — skip the rule
+
+        // Pre-build the regex once per configuration.
+        // The returned closure captures it for fast repeated evaluation.
+        const pattern = new RegExp(`(?:^|\\s)${code}(?:$|\\s)`);
+
+        return (ctx: ChatContext) => pattern.test(ctx.message);
+    }
+};
+```
+
+</Step>
+
+<Step title="Register the filter type">
+
+Resolve the chat module that owns the `filter_types` map and extend it.
+
+```typescript
+class MyAddon extends FrankerFaceZ.utilities.addon.Addon {
+    async onEnable() {
+        // Resolve the module that owns the chat filter types.
+        // The exact module path depends on the FFZ version you target.
+        const chat = this.resolve('chat');
+
+        if (chat?.filter_types) {
+            chat.filter_types['my-addon.emote'] = EmoteFilterType;
+        }
+    }
+
+    async onDisable() {
+        const chat = this.resolve('chat');
+        if (chat?.filter_types)
+            delete chat.filter_types['my-addon.emote'];
+    }
+}
+```
+
+</Step>
+
+<Step title="Rebuild the testers after registering">
+
+Registering a new type does not automatically invalidate existing compiled testers. Trigger a rebuild by calling the appropriate method on the chat module (or emit the relevant event) so that messages start being tested against your new type.
+
+```typescript
+// Example: signal that token-level settings changed
+this.emit('chat:update-lines');
+```
+
+</Step>
+
+</Steps>
+
+---
+
+## Compound rule types (AND / OR groups)
+
+FFZ ships with built-in AND and OR compound types that hold child rule lists. When implementing your own compound type, use the `filter_types` argument passed to `createTest` — and the optional `rebuild` callback — to recursively compile the child rules.
+
+```typescript
+const AndGroupType = {
+    title: 'All of the following',
+    default: () => ({ rules: [] }),
+    childRules: true,
+
+    createTest(config, filter_types, rebuild) {
+        const { createTester } = FrankerFaceZ.utilities.filtering;
+
+        // Build a tester that ANDs all child rules.
+        return createTester(
+            config.rules,
+            filter_types,
+            false, // not inverted
+            false, // AND (not OR)
+            rebuild
+        );
+    }
+};
+```
+
+---
+
+## Context-based filtering examples
+
+### Matching on badges
+
+```typescript
+const ModeratorFilter = {
+    title: 'User is a moderator',
+    default: {},
+
+    createTest() {
+        return (ctx: ChatContext) =>
+            ctx.badges != null && 'moderator' in ctx.badges;
+    }
+};
+```
+
+### Matching on login name (with rebuild)
+
+This example demonstrates using the `rebuild` callback to defer test creation until an async resource is available.
+
+```typescript
+const BlockedUserFilter = {
+    title: 'Blocked user',
+    default: () => ({ users: [] as string[] }),
+
+    createTest(config: { users: string[] }, _types, rebuild) {
+        if (!config.users.length) return null;
+
+        // Build a fast Set for O(1) lookups.
+        const blocked = new Set(config.users.map(u => u.toLowerCase()));
+
+        return (ctx: ChatContext) =>
+            blocked.has(ctx.login.toLowerCase());
+    }
+};
+```
+
+### Using `inverted` for an exclusion list
+
+```typescript
+const tester = createTester(
+    rules,
+    filter_types,
+    true // inverted: returns true when NONE of the rules match
+);
+```
+
+### Using `or` for a match-any list
+
+```typescript
+const tester = createTester(
+    rules,
+    filter_types,
+    false, // not inverted
+    true   // or: returns true when ANY rule matches
+);
+```

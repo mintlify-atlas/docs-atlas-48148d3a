@@ -1,0 +1,238 @@
+---
+title: "Addon class"
+description: "Reference for the Addon class — the root module of every FrankerFaceZ add-on."
+---
+
+`Addon` (from `utilities/addon`) is a specialised subclass of `Module`. Every FrankerFaceZ add-on must have exactly one class that extends `Addon` as its root module.
+
+```typescript
+import { Addon } from 'utilities/addon';
+```
+
+## What Addon adds over Module
+
+| Feature | Module | Addon |
+|---------|--------|-------|
+| Lifecycle hooks | Yes | Yes (inherited) |
+| Event system | Yes | Yes (inherited) |
+| Dependency injection | Yes | Yes (inherited) |
+| `i18n` auto-injected | No | Yes |
+| `settings` auto-injected | No | Yes |
+| Static `info` manifest | No | Yes |
+| Static `version` string | No | Yes |
+| Static `register()` method | No | Yes |
+| `populate()` (deprecated alias) | No | Yes |
+
+## Class signature
+
+```typescript
+export class Addon<
+  TPath extends string = '',
+  TEventMap extends ModuleEvents = ModuleEvents
+> extends Module<TPath, TEventMap> {
+
+  static info?: AddonInfo;
+  static version: string;
+
+  // Auto-injected:
+  i18n: TranslationManager;
+  settings: SettingsManager;
+
+  static register(
+    id?: string | AddonInfo,
+    info?: AddonInfo,
+    version?: string
+  ): void;
+
+  /** @deprecated Use loadFromContext() */
+  populate(
+    ctx: __WebpackModuleApi.RequireContext,
+    log?: Logger
+  ): Promise<Record<string, GenericModule>>;
+}
+```
+
+## Static `info`
+
+```typescript
+static info?: AddonInfo;
+```
+
+The add-on manifest. Set this as a static class property and `register()` will use it automatically. See [Add-on overview](/addons/overview) for the full `AddonInfo` field reference.
+
+```typescript
+export default class MyAddon extends Addon {
+  static info = {
+    id: 'my-addon',
+    version: '1.0.0',
+    name: 'My Addon',
+    author: 'Your Name',
+    description: 'Does useful things.',
+    created: new Date('2024-01-01'),
+    dev: false,
+    external: false,
+    requires: [],
+    required_by: [],
+    targets: ['main'],
+  };
+}
+```
+
+## Static `version`
+
+```typescript
+static version: string;
+```
+
+The current version string. `register()` sets this from its `version` parameter if provided. `AddonManager.getVersion(id)` reads it from this property at runtime.
+
+## Auto-injected dependencies
+
+The `Addon` constructor always calls:
+
+```typescript
+this.inject('i18n');
+this.inject('settings');
+```
+
+This means every `Addon` instance has `this.i18n` (a `TranslationManager`) and `this.settings` (a `SettingsManager`) available by the time `onEnable()` runs.
+
+## `static register(id?, info?, version?)`
+
+```typescript
+static register(
+  id?: string | AddonInfo,
+  info?: AddonInfo,
+  version?: string
+): void
+```
+
+Registers the add-on with FFZ. This must be called exactly once, at the top level of your entry script, after your class is defined.
+
+### How it resolves the ID
+
+1. If `id` is an `AddonInfo` object, extract `id.id` from it.
+2. If no `id` is provided, use the class name converted to snake_case.
+3. If that also fails, throw `Error('Unable to register module without ID.')`.
+
+### How it resolves the manifest
+
+1. If `info` was passed, use it.
+2. Otherwise fall back to `this.info` (the static class property).
+3. If neither exists, register with a minimal stub (`{ id }`).
+
+### What register() does internally
+
+```typescript
+// 1. Upsert the manifest in AddonManager:
+addons.addAddon(info);
+
+// 2. Set the version if provided:
+addons.setVersion(id, version);
+
+// 3. Mount the class in the module tree:
+ffz.register(`addon.${id}`, this);
+```
+
+After step 3, `AddonManager` detects the `:registered` event and — if the user has enabled this add-on — calls `module.enable()`.
+
+### Overload examples
+
+<CodeGroup>
+
+```typescript Using static info
+// Simplest form — class name is converted to snake_case as the ID,
+// and static info is used automatically.
+MyAddon.register();
+```
+
+```typescript With explicit ID
+MyAddon.register('my-addon');
+```
+
+```typescript With full manifest and version
+MyAddon.register('my-addon', {
+  id: 'my-addon',
+  version: '2.0.0',
+  name: 'My Addon',
+  author: 'Your Name',
+  description: 'Does useful things.',
+  created: new Date('2024-01-01'),
+  dev: false,
+  external: false,
+  requires: [],
+  required_by: [],
+  targets: ['main'],
+}, '2.0.0');
+```
+
+</CodeGroup>
+
+## `populate()` (deprecated)
+
+```typescript
+populate(
+  ctx: __WebpackModuleApi.RequireContext,
+  log?: Logger
+): Promise<Record<string, GenericModule>>
+```
+
+This is a deprecated alias for `loadFromContext()`. It logs a warning when called:
+
+```
+[DEV-CHECK] populate() has been renamed to loadFromContext(). The populate() name is deprecated.
+```
+
+Use `loadFromContext()` in all new code.
+
+## Interaction with AddonManager
+
+When `register()` mounts the class at `addon.<id>`, the module emits `:registered`. `AddonManager.loadAddon()` is waiting on `addon.<id>:registered` via `waitFor()`. Once the event fires:
+
+1. `AddonManager` calls `module.load()` (if the module has `onLoad()` or `load_requires`).
+2. Then it calls `module.enable()`, which triggers `onEnable()`.
+
+The user can later disable the add-on, which calls `module.disable()` → `onDisable()`. If the add-on supports it (`canDisable()` and `canUnload()` both return `true`), the user can reload the add-on without a page refresh.
+
+## Minimal class with full typing
+
+```typescript
+import { Addon } from 'utilities/addon';
+import type { ModuleEvents } from 'utilities/module';
+import type { AddonInfo } from 'utilities/types';
+
+type MyAddonEvents = ModuleEvents & {
+  ':data-ready': [count: number];
+};
+
+export default class MyAddon extends Addon<'addon.my-addon', MyAddonEvents> {
+  static info: AddonInfo = {
+    id: 'my-addon',
+    version: '1.0.0',
+    name: 'My Addon',
+    author: 'Your Name',
+    description: 'Example add-on with full typing.',
+    created: new Date('2024-01-01'),
+    dev: false,
+    external: false,
+    requires: [],
+    required_by: [],
+    targets: ['main'],
+  };
+
+  async onEnable() {
+    const count = await this.loadData();
+    this.emit(':data-ready', count);
+  }
+
+  onDisable() {
+    // clean up
+  }
+
+  private async loadData(): Promise<number> {
+    return 42;
+  }
+}
+
+MyAddon.register();
+```

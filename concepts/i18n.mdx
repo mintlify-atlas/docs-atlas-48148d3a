@@ -1,0 +1,239 @@
+---
+title: "Internationalization"
+description: "How FFZ's translation system works: the TranslationManager, ICU message format, the t() function, and how to add translations to your add-on."
+---
+
+FFZ uses a custom internationalization system built on top of `@ffz/icu-msgparser`. The `TranslationManager` module (path: `'i18n'`) manages locale loading, phrase storage, and string formatting. All user-visible text in FFZ and its add-ons should go through this system.
+
+## TranslationManager
+
+`TranslationManager` is available at the module path `'i18n'`. The `Addon` base class automatically injects it as `this.i18n`:
+
+```typescript
+class MyAddon extends Addon {
+  // this.i18n is already available — injected by Addon
+}
+```
+
+If you need it in a plain `Module`, inject it manually:
+
+```typescript
+class MyModule extends Module {
+  i18n!: TranslationManager;
+
+  constructor(name, parent) {
+    super(name, parent);
+    this.inject('i18n');
+  }
+}
+```
+
+## The t() function
+
+`this.i18n.t()` is the primary translation function. It looks up a key in the active locale's phrase table and returns a formatted string.
+
+```typescript
+// Key only — returns the key itself if no phrase is found
+const label = this.i18n.t('my_addon.hello', 'Hello!');
+
+// Key with substitution variables
+const msg = this.i18n.t(
+  'my_addon.welcome',
+  'Welcome, {user}!',
+  { user: 'Kappa' }
+);
+// => 'Welcome, Kappa!'
+```
+
+### Function signature
+
+```typescript
+t(key: string, phrase: string, options?: Record<string, any>): string
+```
+
+| Parameter | Purpose |
+|---|---|
+| `key` | A dotted string that uniquely identifies this translation (e.g., `'my_addon.button.save'`). |
+| `phrase` | The English fallback string, using ICU message format. |
+| `options` | An optional object supplying values for variables in the phrase. |
+
+<Tip>
+  Always provide a `phrase` argument. It acts as the English fallback and is also used by the string-capture system to track which phrases exist and need translation.
+</Tip>
+
+## ICU message format
+
+FFZ uses the ICU Message Format as implemented by `@ffz/icu-msgparser`. This format supports variables, pluralization, and select expressions.
+
+### Variable substitution
+
+```typescript
+this.i18n.t('greeting', 'Hello, {name}!', { name: 'Kappa' });
+// => 'Hello, Kappa!'
+```
+
+### Pluralization
+
+The `plural` type selects a sub-message based on a numeric value and the current locale's plural rules:
+
+```typescript
+this.i18n.t(
+  'item_count',
+  '{count, plural, one {# item} other {# items}}',
+  { count: 3 }
+);
+// => '3 items'
+```
+
+### Select
+
+The `select` type chooses a sub-message based on an exact string match:
+
+```typescript
+this.i18n.t(
+  'gender_greeting',
+  '{gender, select, male {He} female {She} other {They}} joined.',
+  { gender: 'female' }
+);
+// => 'She joined.'
+```
+
+### Number formatting
+
+```typescript
+this.i18n.t(
+  'coverage',
+  '{value, number, percent} complete',
+  { value: 0.75 }
+);
+// => '75% complete'
+```
+
+### Supported type formatters
+
+These type formatters are built into `TranslationCore` (`src/utilities/translation-core.ts`):
+
+| Formatter | Example format string |
+|---|---|
+| `number` | `{n, number}`, `{n, number, percent}` |
+| `currency` | `{price, currency, USD}` |
+| `date` | `{d, date}`, `{d, date, short}` |
+| `time` | `{t, time}`, `{t, time, short}` |
+| `datetime` | `{dt, datetime}` |
+| `duration` | `{secs, duration}` |
+| `plural` | `{n, plural, one {…} other {…}}` |
+| `select` | `{v, select, a {…} other {…}}` |
+| `selectordinal` | `{n, selectordinal, one {…st} two {…nd} other {…th}}` |
+| `tostring` | `{v, tostring}` |
+
+## tList()
+
+`tList()` works like `t()` but returns an array of values instead of a concatenated string. This is used in Vue components where the result may contain React/Vue nodes rather than plain strings:
+
+```typescript
+const parts = this.i18n.tList(
+  'my_addon.link_phrase',
+  'Click {link} to continue.',
+  { link: someVNode }
+);
+// parts is an array: ['Click ', someVNode, ' to continue.']
+```
+
+## Using translations in settings UI
+
+When registering settings with the `settings.add()` API, use i18n keys on `title`, `description`, and select option labels by providing an `i18n_key` sibling:
+
+```typescript
+this.settings.add('my_addon.mode', {
+  default: 'compact',
+  ui: {
+    path: 'Add-Ons > My Add-on >> Display',
+    title: 'Display Mode',
+    i18n_key: 'my_addon.setting.mode',
+    component: 'setting-select-box',
+    data: [
+      {
+        value: 'compact',
+        title: 'Compact',
+        i18n_key: 'my_addon.setting.mode.values.compact'
+      },
+      {
+        value: 'full',
+        title: 'Full',
+        i18n_key: 'my_addon.setting.mode.values.full'
+      }
+    ]
+  }
+});
+```
+
+When `i18n_key` is omitted on select options, FFZ auto-generates one from the pattern `setting.entry.<key>.values.<value>`.
+
+## Locales and locale loading
+
+`TranslationManager` fetches available locale metadata from the FFZ CDN on startup. Only English (`en`) is bundled; all other locales are loaded on demand when the user changes their language setting.
+
+```typescript
+// Users change locale through the setting:
+// 'i18n.locale' → triggers TranslationManager.setLocale()
+```
+
+Locale files are JSON maps from phrase key to translated ICU string:
+
+```json
+{
+  "my_addon.hello": "Hola!",
+  "my_addon.welcome": "¡Bienvenido, {user}!"
+}
+```
+
+### Loading a locale chunk
+
+Large add-ons can split their translations into named chunks to avoid loading unused phrases:
+
+```typescript
+await this.i18n.loadChunk('my_addon');
+```
+
+This fetches the `my_addon` chunk for the current locale from the CDN and merges it into the active phrase table.
+
+## String capture
+
+When `i18n.debug.capture` is enabled (automatically on in dev mode), every call to `t()` or `tList()` is recorded by the `see()` method. The captured data includes the key, the English phrase, call location, and variable structure. This data powers the translation editing UI and is used to populate the FFZ translation backend.
+
+```typescript
+// see() is called automatically by t() — you do not call it directly
+this.i18n.t('my.key', 'My phrase {var}', { var: 42 });
+// internally: this.see('my.key', 'My phrase {var}', { var: 42 })
+```
+
+## Debug transformations
+
+During development, the `i18n.debug.transform` setting applies transformations to all translated strings. This helps verify coverage and test layout with longer or different text.
+
+| Transformation | Effect |
+|---|---|
+| `upper` | Converts all text to UPPER CASE. |
+| `lower` | Converts all text to lower case. |
+| `append_key` | Appends the translation key in parentheses. |
+| `set_key` | Replaces text with the translation key. |
+| `double` | Duplicates the string (simulates long translations). |
+| `owo` | Applies owo text transformation (fun QA check). |
+
+## Reactive updates
+
+The `TranslationManager` emits events when translations change:
+
+| Event | Payload | When |
+|---|---|---|
+| `i18n:changed` | `(newLocale, oldLocale)` | The active locale changes. |
+| `i18n:update` | _(none)_ | Any phrase update (locale change, hot reload). |
+| `i18n:loaded` | `(keys: string[])` | New phrases are loaded for the current locale. |
+
+Vue components typically subscribe to `i18n:update` to re-render:
+
+```typescript
+this.on('i18n:update', () => {
+  this.$forceUpdate();
+}, this);
+```

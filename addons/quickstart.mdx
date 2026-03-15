@@ -1,0 +1,159 @@
+---
+title: "Add-on quickstart"
+description: "Create a minimal FrankerFaceZ add-on from scratch in a few steps."
+---
+
+This guide walks you through creating the smallest possible working add-on. By the end you will have a class that registers itself with FFZ and logs a message when it is enabled.
+
+<Note>
+Add-ons published to the FFZ add-ons repository are built with the official add-ons webpack template, which handles bundling and calls `Addon.register()` automatically. The steps below show what that call does so you understand the mechanics.
+</Note>
+
+## Prerequisites
+
+- TypeScript (recommended) or JavaScript
+- Access to `FrankerFaceZ.utilities.addon` — available at runtime as a property on the global `FrankerFaceZ` class
+
+<Steps>
+  <Step title="Import the Addon class">
+    The `Addon` class is exported from `utilities/addon`. In a webpack-based add-ons project the module path resolves automatically. In the browser you can also access it from `FrankerFaceZ.utilities.addon.Addon`.
+
+    ```typescript
+    import { Addon } from 'utilities/addon';
+    ```
+  </Step>
+
+  <Step title="Define your class">
+    Extend `Addon` and declare the static `info` manifest. The manifest is passed to `AddonManager` and drives the add-ons panel UI.
+
+    ```typescript
+    import { Addon } from 'utilities/addon';
+    import type { AddonInfo } from 'utilities/types';
+
+    export default class MyAddon extends Addon {
+      static info: AddonInfo = {
+        id: 'my-addon',
+        version: '1.0.0',
+        name: 'My Addon',
+        author: 'Your Name',
+        description: 'A minimal example add-on.',
+        website: 'https://example.com',
+        created: new Date('2024-01-01'),
+        // Runtime fields — FFZ fills these in:
+        dev: false,
+        external: false,
+        requires: [],
+        required_by: [],
+        targets: ['main'],
+      };
+    }
+    ```
+  </Step>
+
+  <Step title="Inject dependencies">
+    Call `this.inject()` in the constructor for any FFZ modules your add-on needs. The `Addon` base class already injects `i18n` and `settings` for you. Injecting a module adds it to `this.requires` and assigns it to a property with the same name.
+
+    ```typescript
+    constructor(name?: string, parent?: any) {
+      super(name, parent);
+
+      // Inject a built-in FFZ module by its path:
+      this.inject('chat');
+      // this.chat is now typed as the Chat module instance.
+    }
+    ```
+  </Step>
+
+  <Step title="Implement onEnable">
+    Override `onEnable()` to run code when the user enables your add-on. It can be `async`.
+
+    ```typescript
+    async onEnable() {
+      this.log.info('My add-on is now enabled!');
+      // Set up event listeners, patch rendering, etc.
+    }
+    ```
+
+    If you need a corresponding teardown, implement `onDisable()` as well.
+  </Step>
+
+  <Step title="Call Addon.register()">
+    At the bottom of your entry file, call the static `register()` method. This inserts the add-on into the FFZ module tree and triggers the `AddonManager` to enable it if the user has it turned on.
+
+    ```typescript
+    MyAddon.register();
+    ```
+
+    `register()` accepts an optional `id` and `AddonInfo` object if you prefer not to use `static info`:
+
+    ```typescript
+    MyAddon.register('my-addon', MyAddon.info, '1.0.0');
+    ```
+  </Step>
+</Steps>
+
+## Complete minimal example
+
+```typescript
+import { Addon } from 'utilities/addon';
+import type { AddonInfo } from 'utilities/types';
+
+export default class MyAddon extends Addon {
+  static info: AddonInfo = {
+    id: 'my-addon',
+    version: '1.0.0',
+    name: 'My Addon',
+    author: 'Your Name',
+    description: 'A minimal example add-on.',
+    created: new Date('2024-01-01'),
+    dev: false,
+    external: false,
+    requires: [],
+    required_by: [],
+    targets: ['main'],
+  };
+
+  constructor(name?: string, parent?: any) {
+    super(name, parent);
+    // this.i18n and this.settings are already injected by Addon base class
+    this.inject('chat');
+  }
+
+  async onEnable() {
+    this.log.info('My add-on is enabled.');
+
+    // Read a setting:
+    const val = this.settings.get('my-addon.example-setting');
+
+    // Listen for chat lines:
+    this.on('chat:receive-message', msg => {
+      // handle message
+    });
+  }
+
+  onDisable() {
+    this.log.info('My add-on is disabled.');
+    // Event listeners registered with this.on() are automatically cleaned up
+    // when the module is disabled.
+  }
+}
+
+MyAddon.register();
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Add-on structure" icon="folder" href="/addons/structure">
+    Organise your add-on with multiple modules.
+  </Card>
+  <Card title="Settings API" icon="sliders" href="/addons/settings">
+    Declare and read settings in your add-on.
+  </Card>
+  <Card title="Events API" icon="bolt" href="/addons/events">
+    Subscribe to and emit events across modules.
+  </Card>
+  <Card title="Addon class" icon="puzzle-piece" href="/addons/addon-class">
+    Full reference for the Addon class and register().
+  </Card>
+</CardGroup>

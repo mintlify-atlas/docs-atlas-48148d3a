@@ -1,0 +1,321 @@
+---
+title: "DOM Utilities"
+description: "Creating and manipulating DOM elements in FFZ add-ons, including createElement, ManagedStyle, sanitize, and patterns for working with Twitch's React-rendered DOM."
+---
+
+The `FrankerFaceZ.utilities.dom` namespace contains helpers for creating DOM nodes, injecting CSS, sanitizing text, and working safely alongside Twitch's React-rendered page.
+
+```typescript
+const { createElement, ManagedStyle, sanitize } = FrankerFaceZ.utilities.dom;
+```
+
+---
+
+## `createElement`
+
+`createElement` creates native DOM elements using the same calling convention as `React.createElement`. This means you can use JSX syntax in your add-on — or call it directly — and produce real `HTMLElement` nodes instead of React virtual DOM nodes.
+
+### Signature
+
+```typescript
+function createElement<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    props?: Record<string, any> | string | null,
+    ...children: DomFragment[]
+): HTMLElementTagNameMap[K];
+```
+
+All SVG tag names are also supported; the function automatically uses the correct `createElementNS` namespace.
+
+### Props handling
+
+| Prop key | Behaviour |
+|----------|-----------|
+| `className` | Sets the element's `class` attribute |
+| `style` (string) | Assigned to `el.style.cssText` |
+| `style` (object) | Each property is set individually on `el.style` |
+| `dataset` (object) | Sets `el.dataset` entries, camelCasing keys |
+| `dangerouslySetInnerHTML` | Sets `el.innerHTML` from `.__html` (React compat) |
+| `on*` | Calls `addEventListener` for the event name after `on` |
+| `data-*` | Sets the corresponding `dataset` entry |
+| `aria-*` / HTML attributes | Set via `setAttribute` |
+| Anything else | Assigned directly as a property on the element |
+
+If you pass a plain string as `props`, it is treated as the `class` attribute.
+
+### Direct usage
+
+```typescript
+const { createElement } = FrankerFaceZ.utilities.dom;
+
+const btn = createElement('button', {
+    className: 'ffz-button tw-button',
+    onclick: () => this.doSomething()
+}, 'Click me');
+
+const icon = createElement('span', {
+    className: 'ffz--icon',
+    style: { color: 'red' }
+});
+
+document.querySelector('.my-container')?.appendChild(btn);
+```
+
+### JSX usage
+
+To use JSX syntax in an add-on file, `createElement` must be in scope. You can either import it at the top of the file or destructure it from the utilities namespace.
+
+```typescript
+import { createElement } from 'utilities/dom';
+// or at runtime:
+const { createElement } = FrankerFaceZ.utilities.dom;
+
+// Then JSX compiles to createElement calls:
+function renderBadge() {
+    return (
+        <span className="ffz--badge">
+            <figure className="ffz-i-zreknarf" />
+        </span>
+    );
+}
+```
+
+<Note>
+Your add-on's build configuration must set the JSX factory to `createElement` (not `React.createElement`) for this to work. The standard FFZ add-on tooling handles this automatically.
+</Note>
+
+### Nested structures and arrays
+
+`createElement` accepts nested arrays of children, plain strings, `Node` objects, or `null` / `undefined` (which are silently skipped). Strings are always inserted as text nodes — HTML in string children is **never** interpreted.
+
+```typescript
+const list = createElement('ul', null,
+    items.map(item =>
+        createElement('li', { className: 'item' }, item.label)
+    )
+);
+```
+
+---
+
+## `setChildren`
+
+Sets the children of an existing element, replacing its current contents.
+
+```typescript
+function setChildren(
+    element: HTMLElement,
+    children: DomFragment,
+    no_sanitize?: boolean,   // deprecated — ignored
+    no_empty?: boolean       // if true, append rather than replace
+): void;
+```
+
+String values are always inserted as text nodes. The `no_sanitize` flag is no longer respected; passing raw HTML as a string is not supported.
+
+---
+
+## `sanitize`
+
+Escapes all special HTML characters in a string, returning a version safe for insertion into `innerHTML`.
+
+```typescript
+function sanitize(text: string): string;
+```
+
+Internally this sets `textContent` on a shared `<span>` and reads back `innerHTML`, relying on the browser's native escaping.
+
+```typescript
+const { sanitize } = FrankerFaceZ.utilities.dom;
+
+const safe = sanitize(userInput);
+el.innerHTML = `<strong>${safe}</strong>`;
+```
+
+<Warning>
+Do not use `innerHTML` with user-supplied strings unless you have sanitized them first. The safest approach is to build DOM nodes with `createElement` or to use `el.textContent` directly, which never interprets HTML.
+</Warning>
+
+---
+
+## `ManagedStyle`
+
+`ManagedStyle` injects and manages a `<style>` element in the document `<head>`. It lets you add, update, or remove named blocks of CSS without touching other style rules.
+
+### Creating an instance
+
+```typescript
+const { ManagedStyle } = FrankerFaceZ.utilities.dom;
+
+const style = new ManagedStyle();
+```
+
+A new `<style id="ffz--managed-style--N">` element is appended to `<head>` immediately.
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `set(key, value, force?)` | Add or replace a named CSS block. Skips the update if the value is unchanged unless `force` is `true` |
+| `get(key)` | Return the current CSS text for the key, or `undefined` |
+| `has(key)` | Return `true` if the key has a non-null block |
+| `delete(key)` | Remove the named CSS block from the style element |
+| `clear()` | Remove all CSS blocks |
+| `destroy()` | Remove the `<style>` element from the DOM entirely |
+
+### Usage example
+
+```typescript
+const style = new ManagedStyle();
+
+// Add a rule
+style.set('username-colors', `
+    .chat-line__username { color: #fcad06 !important; }
+`);
+
+// Update it later
+style.set('username-colors', `
+    .chat-line__username { color: #ff4500 !important; }
+`);
+
+// Remove it
+style.delete('username-colors');
+
+// Clean up when the add-on is disabled
+style.destroy();
+```
+
+<Tip>
+Use one `ManagedStyle` instance per add-on and clean up with `destroy()` in your module's `onDisable` handler to avoid leaving orphaned `<style>` elements in the DOM.
+</Tip>
+
+---
+
+## `ClickOutside`
+
+A utility class that fires a callback when the user clicks anywhere outside a given element — useful for closing dropdown menus or dismissing popups.
+
+```typescript
+const outside = new ClickOutside(element, (event) => {
+    dropdown.classList.remove('open');
+});
+
+// When done:
+outside.destroy();
+```
+
+---
+
+## `findReactFragment`
+
+Scans a React render tree for a node that matches a criteria function.
+
+```typescript
+function findReactFragment<TNode>(
+    frag: TNode,
+    criteria: (node: TNode) => boolean,
+    depth?: number  // default 25
+): TNode | null;
+```
+
+Start from the `_reactRootContainer` or a component's `_reactFiber` to walk Twitch's virtual DOM. Useful for reading component state or props when Twitch does not expose a public API.
+
+```typescript
+const { findReactFragment } = FrankerFaceZ.utilities.dom;
+
+const chatRoot = document.querySelector('.chat-list--default');
+const fiberRoot = (chatRoot as any)._reactFiber;
+
+const fragment = findReactFragment(fiberRoot, node =>
+    node?.props?.currentUserLogin != null
+);
+
+if (fragment)
+    console.log('current user:', fragment.props.currentUserLogin);
+```
+
+---
+
+## File input helpers
+
+#### `openFile(contentType, multiple)`
+
+Shows a native file picker and returns a `Promise` that resolves to the selected `File` (or `File[]` if `multiple` is `true`). Returns `null` / `[]` if cancelled.
+
+```typescript
+const file = await openFile('image/*', false) as File | null;
+```
+
+#### `readFile(file, encoding?)`
+
+Asynchronously reads the text content of a `Blob` or `File`. Defaults to UTF-8.
+
+---
+
+## Event helpers
+
+#### `on(target, type, listener, options?)`
+
+A thin wrapper around `EventTarget.addEventListener`.
+
+#### `off(target, type, listener, options?)`
+
+A thin wrapper around `EventTarget.removeEventListener`.
+
+---
+
+## Working safely with Twitch's DOM
+
+Twitch renders its UI using React, which means DOM nodes are created and destroyed frequently as the user navigates. Keep the following practices in mind when writing add-ons.
+
+<Steps>
+
+<Step title="Prefer event delegation over direct listeners">
+
+Attaching listeners to long-lived parent elements is more robust than attaching them to individual short-lived nodes. Use a single listener on a container and check `event.target` to identify the relevant element.
+
+```typescript
+const { on } = FrankerFaceZ.utilities.dom;
+
+on(chatContainer, 'click', (event) => {
+    const target = event.target as HTMLElement;
+    if (target.matches('.ffz--my-button'))
+        handleButtonClick(target);
+});
+```
+
+</Step>
+
+<Step title="Use MutationObserver for DOM changes">
+
+When you need to react to Twitch inserting new elements, observe the parent container with a `MutationObserver` rather than polling.
+
+```typescript
+const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations)
+        for (const node of mutation.addedNodes)
+            if (node instanceof HTMLElement && node.matches('.chat-line__message'))
+                processMessage(node);
+});
+
+observer.observe(chatContainer, { childList: true, subtree: true });
+
+// Clean up:
+observer.disconnect();
+```
+
+</Step>
+
+<Step title="Clean up when the module is disabled">
+
+Remove listeners, disconnect observers, and call `destroy()` on any `ManagedStyle` or `Tooltip` instances in your module's `onDisable` lifecycle hook to avoid leaking memory or interfering with other add-ons.
+
+</Step>
+
+<Step title="Never assign innerHTML with unsanitized strings">
+
+Always use `createElement` for dynamic content, `el.textContent` for plain text, or `sanitize()` on any string that goes into `innerHTML`.
+
+</Step>
+
+</Steps>
